@@ -7,7 +7,6 @@
 
 import SwiftUI
 import SwiftData
-import AVKit
 #if canImport(UIKit)
 import UIKit
 #endif
@@ -17,96 +16,69 @@ struct AnimeGridItemView: View {
     let showStatusBadge: Bool
     let allowLocalMediaLinking: Bool
     let onGenreTap: ((AnimeGenre) -> Void)?
+    let preferredWidth: CGFloat?
+    private let libraryEntry: LibraryEntryModel?
 
     @Environment(\.modelContext) private var modelContext
     @Environment(\.colorScheme) private var colorScheme
-    @Query private var watchlistEntry: [LibraryEntryModel]
+    @EnvironmentObject private var playbackCoordinator: PlaybackCoordinator
+    @State private var resumeProgress: PlaybackProgress? = nil
+    @State private var hasLinkedFolderState: Bool = false
+    @State private var genresState: [AnimeGenre] = []
 
-    init(animeModel: AnimeModel, showStatusBadge: Bool = false, allowLocalMediaLinking: Bool = false, onGenreTap: ((AnimeGenre) -> Void)? = nil) {
+    init(
+        animeModel: AnimeModel,
+        showStatusBadge: Bool = false,
+        allowLocalMediaLinking: Bool = false,
+        onGenreTap: ((AnimeGenre) -> Void)? = nil,
+        preferredWidth: CGFloat? = nil,
+        libraryEntry: LibraryEntryModel? = nil
+    ) {
         self.animeModel = animeModel
         self.showStatusBadge = showStatusBadge
         self.allowLocalMediaLinking = allowLocalMediaLinking
         self.onGenreTap = onGenreTap
-        let targetID = animeModel.id
-        let predicate = #Predicate<LibraryEntryModel> { $0.id == targetID }
-        _watchlistEntry = Query(filter: predicate)
+        self.preferredWidth = preferredWidth
+        self.libraryEntry = libraryEntry
     }
 
-    private var watchlistStatus: LibraryStatus? { watchlistEntry.first?.status }
-    private var entryModel: LibraryEntryModel? { watchlistEntry.first }
+    private var entry: LibraryEntryModel? { libraryEntry }
 
-    private var cornerRadius: CGFloat { 14 }
-    private var titleAreaMinHeight: CGFloat { 32 }
-    private var genreDTOs: [AnimeGenre] {
-        animeModel.genres.map { AnimeGenre(id: $0.id, name: $0.name) }
-    }
+    private let cornerRadius: CGFloat = 14
+    private let posterHeight: CGFloat = 220
+    private let cardBaseHeight: CGFloat = 400
+    private let titleAreaMinHeight: CGFloat = 40
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
+            
             ZStack(alignment: .topTrailing) {
                 AnimePosterView(imageURL: animeModel.imageURL, contentMode: .fill)
-                    .frame(height: 200)
+                    .frame(height: posterHeight)
                     .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
-
-                Menu {
-                    ForEach(LibraryStatus.allCases) { status in
-                        Button {
-                            withAnimation(.spring()) { upsertEntry(status: status) }
-                        } label: {
-                            Label(status.rawValue, systemImage: status.systemImageName)
-                        }
-                    }
-
-                    if watchlistStatus != nil {
-                        Divider()
-                        Button(role: .destructive) {
-                            withAnimation(.easeInOut) { removeEntry() }
-                        } label: {
-                            Label("Remove from Library", systemImage: "trash")
-                        }
-                    }
-                } label: {
-                    Image(systemName: "ellipsis.circle.fill")
-                        .imageScale(.large)
-                        .foregroundStyle(Color.white)
-                        .padding(10)
-                }
-                .accessibilityLabel("More options")
-
-                if showStatusBadge, let status = watchlistStatus {
-                    Text(status.rawValue)
-                        .font(.caption2)
-                        .bold()
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(Color.white, in: Capsule())
-                        .padding(10)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.top, 6)
-                }
+                    .padding(.top, 24)
             }
 
             VStack(alignment: .leading, spacing: 8) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(animeModel.title)
-                        .font(.headline)
-                        .foregroundStyle(.primary)
-                        .multilineTextAlignment(.leading)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .accessibilityLabel(animeModel.title)
-                }
-                .frame(minHeight: titleAreaMinHeight, alignment: .topLeading)
+                Text(animeModel.title)
+                    .font(.headline)
+                    .foregroundStyle(.primary)
+                    .multilineTextAlignment(.leading)
+                    .lineLimit(3)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityLabel(animeModel.title)
+                    .frame(minHeight: titleAreaMinHeight, alignment: .topLeading)
 
                 if let episodes = animeModel.episodeCount {
-                    Text("\(episodes) episode\(episodes == 1 ? "" : "s")")
-                        .font(.caption)
+                    Label("\(episodes) episode\(episodes == 1 ? "" : "s")", systemImage: "play.tv")
+                        .font(.subheadline.weight(.semibold))
                         .foregroundStyle(.secondary)
                 }
 
-                if !genreDTOs.isEmpty {
+                if !genresState.isEmpty {
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 8) {
-                            ForEach(genreDTOs, id: \.id) { genre in
+                            ForEach(genresState, id: \.id) { genre in
                                 genreChip(for: genre)
                             }
                         }
@@ -114,25 +86,10 @@ struct AnimeGridItemView: View {
                     }
                 }
             }
-
-            Spacer(minLength: 0)
-
-            if allowLocalMediaLinking, entryModel?.linkedFolderBookmarkData != nil {
-                Button {
-                    playOrResume()
-                } label: {
-                    let label: String = {
-                        if let progress = PlaybackProgressStore.load(for: animeModel.id), let ep = progress.episodeNumber as Int? {
-                            return "Resume E\(ep)"
-                        } else { return "Play Episode 1" }
-                    }()
-                    Label(label, systemImage: "play.fill")
-                }
-                .buttonStyle(.borderedProminent)
-            }
         }
         .padding(14)
-        .frame(maxWidth: .infinity, minHeight: 320, alignment: .topLeading)
+        .frame(width: preferredWidth)
+        .frame(maxWidth: preferredWidth ?? .infinity, maxHeight: cardBaseHeight, alignment: .topLeading)
         .background(
             RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                 .fill(cardBackground)
@@ -141,8 +98,101 @@ struct AnimeGridItemView: View {
             RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                 .strokeBorder(borderColor, lineWidth: 1)
         )
+        .overlay(alignment: .topTrailing) {
+            libraryControls
+                .padding(12)
+                .zIndex(10)
+                .allowsHitTesting(true)
+        }
         .shadow(color: shadowColor, radius: 3, x: 0, y: 1)
         .contentShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+        .task(id: animeModel.id) {
+            if allowLocalMediaLinking {
+                resumeProgress = PlaybackProgressStore.load(for: animeModel.id)
+            } else {
+                resumeProgress = nil
+            }
+            hasLinkedFolderState = (entry?.linkedFolderBookmarkData != nil)
+            genresState = animeModel.genres.map { AnimeGenre(id: $0.id, name: $0.name) }
+        }
+        .task(id: entry?.linkedFolderBookmarkData) {
+            hasLinkedFolderState = (entry?.linkedFolderBookmarkData != nil)
+        }
+    }
+
+    @ViewBuilder
+    private var libraryControls: some View {
+        if let entry {
+            Menu {
+                if allowLocalMediaLinking {
+                    if entry.linkedFolderBookmarkData == nil {
+                        Button {
+                            linkFolder(for: entry)
+                        } label: {
+                            Label("Link Folder", systemImage: "folder.badge.plus")
+                        }
+                    } else {
+                        Button(role: .destructive) {
+                            unlinkFolder(for: entry)
+                        } label: {
+                            Label("Unlink Folder", systemImage: "folder.badge.minus")
+                        }
+                    }
+                    Divider()
+                }
+                Button(role: .destructive) {
+                    Task { @MainActor in
+                        removeEntry()
+                    }
+                } label: {
+                    Label("Remove from Library", systemImage: "trash")
+                }
+            } label: {
+                if showStatusBadge {
+                    HStack(spacing: 6) {
+                        Image(systemName: "bookmark.fill")
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(tagBackground, in: Capsule())
+                    .foregroundStyle(tagForeground)
+                } else {
+                    Image(systemName: "ellipsis.circle.fill")
+                        .imageScale(.large)
+                        .foregroundStyle(Color.white)
+                        .padding(10)
+                }
+            }
+            .accessibilityLabel("Library options")
+            .buttonStyle(.borderless)
+            .contentShape(Rectangle())
+            .zIndex(2)
+        }
+    }
+    
+    private func linkFolder(for entry: LibraryEntryModel) {
+        guard allowLocalMediaLinking else { return }
+        Task { @MainActor in
+            do {
+                let result = try await LocalMediaManager.linkFolder()
+                entry.linkedFolderBookmarkData = result.bookmark
+                entry.linkedFolderDisplayPath = result.displayPath
+                try? modelContext.save()
+                hasLinkedFolderState = true
+            } catch {
+                // Ignore cancellation/denial
+            }
+        }
+    }
+
+    private func unlinkFolder(for entry: LibraryEntryModel) {
+        guard allowLocalMediaLinking else { return }
+        Task { @MainActor in
+            entry.linkedFolderBookmarkData = nil
+            entry.linkedFolderDisplayPath = nil
+            try? modelContext.save()
+            hasLinkedFolderState = false
+        }
     }
 
     @ViewBuilder
@@ -171,51 +221,77 @@ struct AnimeGridItemView: View {
             .fixedSize(horizontal: true, vertical: true)
     }
 
-    private func upsertEntry(status: LibraryStatus) {
-        if let entry = watchlistEntry.first {
-            entry.status = status
-            entry.addedAt = Date()
-            try? modelContext.save()
-        } else {
-            let entry = LibraryEntryModel(id: animeModel.id, status: status, addedAt: Date(), anime: animeModel)
-            modelContext.insert(entry)
-            try? modelContext.save()
-        }
-    }
-
     private func removeEntry() {
-        if let entry = watchlistEntry.first {
-            modelContext.delete(entry)
+        guard let entry else { return }
+        modelContext.delete(entry)
+        // Defer the save to the next actor turn to avoid publishing during view updates
+        Task { @MainActor in
             try? modelContext.save()
         }
     }
 
     private func loadEpisodes() -> [EpisodeFile] {
-        guard let data = entryModel?.linkedFolderBookmarkData,
-              let url = try? LocalMediaManager.resolveLinkedFolder(from: data) else { return [] }
-        defer { LocalMediaManager.stopAccessIfNeeded(url: url) }
-        return (try? LocalMediaManager.listEpisodes(in: url)) ?? []
+        guard let entry,
+              let data = entry.linkedFolderBookmarkData,
+              let folderURL = try? LocalMediaManager.resolveLinkedFolder(from: data) else {
+            return []
+        }
+        defer { LocalMediaManager.stopAccessIfNeeded(url: folderURL) }
+        return (try? LocalMediaManager.listEpisodes(in: folderURL)) ?? []
     }
 
-    private func playOrResume() {
-        let episodes = loadEpisodes()
-        guard !episodes.isEmpty else { return }
-        let id = animeModel.id
-        if let progress = PlaybackProgressStore.load(for: id),
-           let ep = episodes.first(where: { $0.episodeNumber == progress.episodeNumber }) ?? episodes.first {
-            #if os(iOS) || os(tvOS)
-            let player = AVPlayer(url: ep.url)
-            let time = CMTime(seconds: progress.seconds, preferredTimescale: 600)
-            player.seek(to: time, toleranceBefore: .zero, toleranceAfter: .zero)
-            let vc = AVPlayerViewController(); vc.player = player
-            if let root = UIApplication.shared.windows.first(where: { $0.isKeyWindow })?.rootViewController {
-                root.present(vc, animated: true) { player.play() }
+    private func resolveStartIndex(for episodes: [EpisodeFile], progress: PlaybackProgress?) -> Int {
+        guard let progress else { return 0 }
+        if let match = episodes.firstIndex(where: { $0.episodeNumber == progress.episodeNumber }) {
+            return match
+        }
+        let fallback = progress.episodeNumber - 1
+        if fallback >= 0 && fallback < episodes.count {
+            return fallback
+        }
+        return 0
+    }
+
+    private func adjustedProgress(_ progress: PlaybackProgress?, for episodes: [EpisodeFile], startIndex: Int) -> PlaybackProgress? {
+        guard let progress else { return nil }
+        let episode = episodes[startIndex]
+        let episodeNumber = episode.episodeNumber ?? (startIndex + 1)
+        if episodeNumber == progress.episodeNumber {
+            return progress
+        }
+        return PlaybackProgress(episodeNumber: episodeNumber, seconds: progress.seconds)
+    }
+
+    private func beginPlayback(with queue: [EpisodeFile], baseIndex: Int, initialProgress: PlaybackProgress?) {
+        guard allowLocalMediaLinking, !queue.isEmpty else { return }
+        // Local fallback for splitting queue when LocalMediaManager API is unavailable
+        struct InlineSplit {
+            let playable: [EpisodeFile]
+            let firstUnsupported: EpisodeFile?
+        }
+        func inlineSplitQueue(_ files: [EpisodeFile]) -> InlineSplit {
+            // Heuristic: assume all files are playable; adjust if EpisodeFile exposes capability flags.
+            return InlineSplit(playable: files, firstUnsupported: nil)
+        }
+        let split = inlineSplitQueue(queue)
+        guard !split.playable.isEmpty else {
+            if let unsupported = split.firstUnsupported {
+                LocalMediaManager.presentPlayer(for: unsupported, folderBookmark: entry?.linkedFolderBookmarkData)
             }
-            #else
-            LocalMediaManager.presentPlayer(for: ep)
-            #endif
-        } else if let first = episodes.first {
-            LocalMediaManager.presentPlayer(for: first)
+            return
+        }
+        Task { @MainActor in
+            playbackCoordinator.begin(
+                PlaybackRequest(
+                    animeID: animeModel.id,
+                    title: animeModel.title,
+                    queue: split.playable,
+                    baseIndex: baseIndex,
+                    initialProgress: initialProgress,
+                    externalFallback: split.firstUnsupported,
+                    folderBookmarkData: entry?.linkedFolderBookmarkData
+                )
+            )
         }
     }
 
@@ -266,17 +342,15 @@ struct AnimeGridItemView: View {
     )
     let context = ModelContext(container)
 
-    // Create sample genres
     let action = AnimeGenreModel(id: 1, name: "Action")
     let adventure = AnimeGenreModel(id: 2, name: "Adventure")
-
-    // Insert genres individually (ModelContext.insert expects a PersistentModel, not an array)
     context.insert(action)
     context.insert(adventure)
 
-    // Create sample anime referencing the genres
     let anime = AnimeModel(
         id: 1,
+        providerID: 1,
+        kind: .anime,
         title: "FMAB",
         synopsis: "Two brothers...",
         imageURLString: nil,
@@ -284,11 +358,18 @@ struct AnimeGridItemView: View {
         episodeCount: 64,
         genres: [action, adventure]
     )
-
-    // Insert anime
     context.insert(anime)
+    let entry = LibraryEntryModel(id: anime.id, status: .completed, anime: anime)
+    context.insert(entry)
 
-    return AnimeGridItemView(animeModel: anime, showStatusBadge: true, allowLocalMediaLinking: true)
-        .frame(width: 200)
+    return AnimeGridItemView(
+        animeModel: anime,
+        showStatusBadge: true,
+        allowLocalMediaLinking: true,
+        preferredWidth: 240,
+        libraryEntry: entry
+    )
         .modelContainer(container)
+        .environmentObject(AppNavigation())
+        .environmentObject(PlaybackCoordinator())
 }

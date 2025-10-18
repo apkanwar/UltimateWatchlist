@@ -1,11 +1,29 @@
 import Foundation
 import SwiftData
 
-/// MigrationHelper is intentionally a no-op.
-/// There are no legacy users to migrate, and the app has renamed Watchlist to Library.
-/// Keeping this type allows existing call sites to remain, but it performs no work.
+/// Handles lightweight data migrations that depend on runtime logic rather than SwiftData schema tools.
 enum MigrationHelper {
+    @MainActor
     static func runIfNeeded(container: ModelContainer) async {
-        // No migration required.
+        let context = container.mainContext
+        let fetch = FetchDescriptor<AnimeModel>()
+
+        guard let models = try? context.fetch(fetch), !models.isEmpty else { return }
+
+        var needsSave = false
+        for model in models {
+            if model.providerID == 0 {
+                model.providerID = model.kind.providerID(from: model.id)
+                needsSave = true
+            }
+            if model.kindRaw.isEmpty {
+                model.kind = .anime
+                needsSave = true
+            }
+        }
+
+        if needsSave {
+            try? context.save()
+        }
     }
 }

@@ -7,29 +7,13 @@
 
 import SwiftUI
 import SwiftData
-
-private enum LibraryFilter: Identifiable, Hashable, CaseIterable {
-    case all
-    case status(LibraryStatus)
-
-    static var allCases: [LibraryFilter] {
-        var cases: [LibraryFilter] = [.all]
-        cases.append(contentsOf: LibraryStatus.allCases.map { .status($0) })
-        return cases
-    }
-
-    var id: String { display }
-    var display: String {
-        switch self {
-        case .all: return "All"
-        case .status(let s): return s.rawValue
-        }
-    }
-}
+#if canImport(UIKit)
+import UIKit
+#endif
 
 private enum LibraryViewMode: String, CaseIterable, Identifiable {
     case alphabetical = "Alphabetical"
-    case lastAdded = "Last Added"
+    case lastAdded = "Last Updated"
     case folderLinked = "Folder Linked"
 
     var id: String { rawValue }
@@ -39,13 +23,8 @@ private enum LibraryViewMode: String, CaseIterable, Identifiable {
 struct LibraryView: View {
     @Environment(\.modelContext) private var modelContext
     @Query(sort: [SortDescriptor(\LibraryEntryModel.addedAt, order: .reverse)]) private var entries: [LibraryEntryModel]
-    @State private var selectedFilter: LibraryFilter = .all
     @State private var genreFilter: AnimeGenre?
     @State private var viewMode: LibraryViewMode = .lastAdded
-
-    private var grouped: [LibraryStatus: [LibraryEntryModel]] {
-        Dictionary(grouping: entries, by: { $0.status })
-    }
 
     var body: some View {
         NavigationStack {
@@ -53,34 +32,16 @@ struct LibraryView: View {
                 ContentUnavailableView(
                     "Your library is empty",
                     systemImage: "tray",
-                    description: Text("Use the Discover tab to search for anime and add them to your library.")
+                    description: Text("Use the Discover tab to search for anime or TV shows and add them to your library.")
                 )
                 .navigationTitle("Library")
             } else {
                 LibraryContent(
-                    selectedFilter: $selectedFilter,
-                    groupedEntries: grouped,
                     genreFilter: $genreFilter,
                     allEntries: entries,
                     viewMode: $viewMode
                 )
                 .navigationTitle("Library")
-                .onChange(of: entries) { _, newEntries in
-                    switch selectedFilter {
-                    case .status(let s):
-                        if !newEntries.contains(where: { $0.status == s }) {
-                            if !newEntries.isEmpty {
-                                if let next = LibraryStatus.allCases.first(where: { (grouped[$0]?.isEmpty == false) }) {
-                                    selectedFilter = .status(next)
-                                } else {
-                                    selectedFilter = .all
-                                }
-                            }
-                        }
-                    case .all:
-                        break
-                    }
-                }
                 .navigationDestination(for: Anime.self) { anime in
                     ScrollView {
                         AnimeDetailCardView(anime: anime, onGenreTap: { genre in withAnimation { genreFilter = genre } }, allowLocalMediaLinking: true)
@@ -97,157 +58,239 @@ struct LibraryView: View {
 #Preview {
     LibraryView()
         .modelContainer(for: [AnimeModel.self, AnimeGenreModel.self, LibraryEntryModel.self], inMemory: true)
+        .environmentObject(AppNavigation())
+        .environmentObject(PlaybackCoordinator())
 }
 #endif
 
 private struct LibraryContent: View {
-    @Binding var selectedFilter: LibraryFilter
-    let groupedEntries: [LibraryStatus: [LibraryEntryModel]]
     @Binding var genreFilter: AnimeGenre?
     let allEntries: [LibraryEntryModel]
     @Binding var viewMode: LibraryViewMode
-
-    private let columns = [GridItem(.adaptive(minimum: 200, maximum: 260), spacing: 16, alignment: .leading)]
+    @State private var searchText: String = ""
 
     var body: some View {
-        VStack(spacing: 16) {
-            HStack(spacing: 16) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Picker("Status", selection: $selectedFilter) {
-                        ForEach(LibraryFilter.allCases) { filter in
-                            Text(filter.display).tag(filter)
+        let sortedEntries = sortEntries(allEntries)
+        let searchedEntries = applySearch(to: sortedEntries)
+        let animeEntries = searchedEntries.filter { $0.anime.kind == .anime }
+        let tvEntries = searchedEntries.filter { $0.anime.kind == .tvShow && !isAnimeGenre($0.anime) }
+        let animeTitle = "Anime"
+        let tvTitle = "TV Shows"
+
+        return ScrollView {
+            VStack(spacing: 20) {
+                if let filter = genreFilter {
+                    genreFilterIndicator(filter: filter)
+                        .padding(.horizontal)
+                }
+
+                if animeEntries.isEmpty && tvEntries.isEmpty {
+                    ContentUnavailableView(
+                        "No titles match your filters",
+                        systemImage: "tray",
+                        description: Text("Adjust your filters or search terms to see your saved shows.")
+                    )
+                    .padding(.horizontal)
+                    .frame(maxWidth: .infinity, minHeight: 240)
+                } else {
+                    VStack(spacing: 28) {
+                        if !animeEntries.isEmpty {
+                            LibrarySectionView(
+                                title: animeTitle,
+                                entries: animeEntries,
+                                genreFilter: genreFilter,
+                                viewMode: viewMode,
+                                onGenreTap: { genre in withAnimation { genreFilter = genre } }
+                            )
+                            .transition(.opacity)
+                        }
+                        if !tvEntries.isEmpty {
+                            LibrarySectionView(
+                                title: tvTitle,
+                                entries: tvEntries,
+                                genreFilter: genreFilter,
+                                viewMode: viewMode,
+                                onGenreTap: { genre in withAnimation { genreFilter = genre } }
+                            )
+                            .transition(.opacity)
                         }
                     }
-                    .pickerStyle(.menu)
+                    .padding(.horizontal)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-                VStack(alignment: .leading, spacing: 6) {
-                    Picker("Sort", selection: $viewMode) {
-                        ForEach(LibraryViewMode.allCases) { mode in
-                            Text(mode.display).tag(mode)
-                        }
-                    }
-                    .pickerStyle(.menu)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .padding(.horizontal)
-
-            if let filter = genreFilter {
-                // Reuse Discover-style indicator
-                HStack(spacing: 12) {
-                    Label("Filtering by \(filter.name)", systemImage: "line.3.horizontal.decrease.circle")
-                        .font(.subheadline.weight(.semibold))
-                    Spacer()
-                    Button {
-                        withAnimation(.easeInOut) { genreFilter = nil }
-                    } label: {
-                        Label("Clear", systemImage: "xmark.circle")
-                    }
-                    .buttonStyle(.borderless)
-                }
-                .padding(14)
-                .background(
-                    {
-                        #if canImport(UIKit)
-                        Color(UIColor.secondarySystemGroupedBackground)
-                        #else
-                        Color.secondary.opacity(0.12)
-                        #endif
-                    }()
-                )
-                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                .padding(.horizontal)
-            }
-
-            let entriesForFilter: [LibraryEntryModel] = {
-                switch selectedFilter {
-                case .all:
-                    return allEntries
-                case .status(let s):
-                    return groupedEntries[s] ?? []
-                }
-            }()
-
-            let finalEntries: [LibraryEntryModel] = {
-                switch viewMode {
-                case .lastAdded:
-                    return entriesForFilter.sorted(by: { $0.addedAt > $1.addedAt })
-                case .alphabetical:
-                    return entriesForFilter.sorted {
-                        $0.anime.title.localizedCaseInsensitiveCompare($1.anime.title) == .orderedAscending
-                    }
-                case .folderLinked:
-                    return entriesForFilter
-                        .filter { $0.linkedFolderBookmarkData != nil }
-                        .sorted(by: { $0.addedAt > $1.addedAt })
-                }
-            }()
-
-            LibraryPage(
-                title: selectedFilter.display,
-                entries: finalEntries,
-                columns: columns,
-                genreFilter: genreFilter,
-                viewMode: viewMode,
-                onGenreTap: { genre in withAnimation { genreFilter = genre } }
-            )
-            .id("\(selectedFilter.id)-\(viewMode.id)")
+            .padding(.vertical, 18)
         }
-        .padding(.bottom)
+        .safeAreaInset(edge: .top) {
+            headerControls
+                .padding(.horizontal)
+                .background(
+                    Rectangle()
+                        .fill(.clear)
+                        .background(.ultraThinMaterial)
+                )
+                .overlay(
+                    Divider()
+                        .opacity(0.5)
+                        .padding(.top, -0.5)
+                    , alignment: .bottom
+                )
+        }
+    }
+
+    private var headerControls: some View {
+        HStack(alignment: .top, spacing: 20) {
+            Picker("Sort", selection: $viewMode) {
+                ForEach(LibraryViewMode.allCases) { mode in
+                    Text(mode.display).tag(mode)
+                }
+            }
+            .pickerStyle(.menu)
+            
+            Spacer()
+            TextField("Search library", text: $searchText)
+                .textFieldStyle(.roundedBorder)
+                .frame(maxWidth: 320)
+#if os(iOS)
+                .textInputAutocapitalization(.never)
+#endif
+                .disableAutocorrection(true)
+        }
+        .padding(.vertical, 14)
+        .padding(.horizontal, 18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func genreFilterIndicator(filter: AnimeGenre) -> some View {
+        HStack(spacing: 12) {
+            Label("Filtering by \(filter.name)", systemImage: "line.3.horizontal.decrease.circle")
+                .font(.subheadline.weight(.semibold))
+            Spacer()
+            Button {
+                withAnimation(.easeInOut) { genreFilter = nil }
+            } label: {
+                Label("Clear", systemImage: "xmark.circle")
+            }
+            .buttonStyle(.borderless)
+        }
+        .padding(14)
+        .background(filterBackgroundColor, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+
+    private var filterBackgroundColor: Color {
+        #if canImport(UIKit)
+        Color(UIColor.secondarySystemGroupedBackground)
+        #else
+        Color.secondary.opacity(0.12)
+        #endif
+    }
+
+    private var headerBackgroundColor: Color {
+        #if canImport(UIKit)
+        Color(UIColor.systemGroupedBackground)
+        #else
+        Color.secondary.opacity(0.08)
+        #endif
+    }
+
+    private func sortEntries(_ entries: [LibraryEntryModel]) -> [LibraryEntryModel] {
+        switch viewMode {
+        case .lastAdded:
+            return entries.sorted(by: { $0.addedAt > $1.addedAt })
+        case .alphabetical:
+            return entries.sorted {
+                $0.anime.title.localizedCaseInsensitiveCompare($1.anime.title) == .orderedAscending
+            }
+        case .folderLinked:
+            return entries
+                .filter { $0.linkedFolderBookmarkData != nil }
+                .sorted(by: { $0.addedAt > $1.addedAt })
+        }
+    }
+
+    private func applySearch(to entries: [LibraryEntryModel]) -> [LibraryEntryModel] {
+        let trimmed = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return entries }
+        let normalizedQuery = trimmed.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+        return entries.filter { entry in
+            let title = entry.anime.title.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+            if title.contains(normalizedQuery) { return true }
+            return entry.anime.genres.contains {
+                $0.name.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current).contains(normalizedQuery)
+            }
+        }
+    }
+
+    private func isAnimeGenre(_ anime: AnimeModel) -> Bool {
+        anime.genres.contains {
+            $0.name.compare("Anime", options: [.caseInsensitive, .diacriticInsensitive]) == .orderedSame
+        }
     }
 }
 
-private struct LibraryPage: View {
+private struct LibrarySectionView: View {
     let title: String
     let entries: [LibraryEntryModel]
-    let columns: [GridItem]
     let genreFilter: AnimeGenre?
     let viewMode: LibraryViewMode
     let onGenreTap: (AnimeGenre) -> Void
 
+    private var cardWidth: CGFloat {
+#if canImport(UIKit)
+        let screenWidth = UIScreen.main.bounds.width
+        return max(220, min(screenWidth * 0.36, 320))
+#else
+        return 280
+#endif
+    }
+
+    private var sectionHeight: CGFloat { 432 }
+
     var body: some View {
         let filteredEntries: [LibraryEntryModel] = {
             if let filter = genreFilter {
+                let target = filter.name.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
                 return entries.filter { entry in
-                    entry.anime.genres.contains(where: { $0.id == filter.id })
+                    entry.anime.genres.contains {
+                        $0.name.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current) == target
+                    }
                 }
             } else {
                 return entries
             }
         }()
 
-        ScrollView {
-            VStack(alignment: .leading, spacing: 12) {
-                Text(title)
-                    .font(.headline)
-                    .padding(.horizontal)
+        VStack(alignment: .leading, spacing: 12) {
+            Text(title)
+                .font(.title3.weight(.semibold))
+                .padding(.horizontal)
 
-                if filteredEntries.isEmpty {
-                    contentUnavailableView
-                    .frame(maxWidth: .infinity, minHeight: 240, alignment: .center)
-                } else {
-                    LazyVGrid(columns: columns, alignment: .leading, spacing: 20) {
+            if filteredEntries.isEmpty {
+                contentUnavailableView
+                    .frame(maxWidth: .infinity, minHeight: 200, alignment: .center)
+            } else {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    LazyHStack(spacing: 16) {
                         ForEach(filteredEntries) { entry in
                             NavigationLink(value: entry.anime.asDTO) {
                                 AnimeGridItemView(
                                     animeModel: entry.anime,
                                     showStatusBadge: true,
                                     allowLocalMediaLinking: true,
-                                    onGenreTap: onGenreTap
+                                    onGenreTap: onGenreTap,
+                                    preferredWidth: cardWidth,
+                                    libraryEntry: entry
                                 )
                             }
                             .buttonStyle(.plain)
                         }
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal)
-                    .padding(.bottom, 24)
+                    .padding(.vertical, 6)
                 }
+                .frame(height: sectionHeight)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     @ViewBuilder
@@ -263,7 +306,7 @@ private struct LibraryPage: View {
             ContentUnavailableView(
                 "No titles here yet",
                 systemImage: "tray",
-                description: Text("Add anime to this list from the Discover tab.")
+                description: Text("Add titles to this list from the Discover tab.")
             )
         }
     }
@@ -272,14 +315,17 @@ private struct LibraryPage: View {
 extension AnimeModel {
     var asDTO: Anime {
         let genresDTO = genres.map { AnimeGenre(id: $0.id, name: $0.name) }
+        let provider = resolvedProviderID
         return Anime(
-            id: id,
+            id: provider,
             title: title,
             synopsis: synopsis,
             imageURL: imageURL,
             score: score,
             genres: genresDTO,
-            episodeCount: episodeCount
+            episodeCount: episodeCount,
+            kind: kind,
+            providerID: provider
         )
     }
 }

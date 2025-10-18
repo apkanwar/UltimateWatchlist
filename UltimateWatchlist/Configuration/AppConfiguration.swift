@@ -18,4 +18,15 @@ enum AppConfiguration {
         }
         return ""
     }
+
+    static var tvMazeAPIKey: String {
+        if let environmentValue = ProcessInfo.processInfo.environment["TVMAZE_API_KEY"], !environmentValue.isEmpty {
+            return environmentValue
+        }
+        if let infoDictionaryValue = Bundle.main.object(forInfoDictionaryKey: "TVMazeAPIKey") as? String,
+           !infoDictionaryValue.isEmpty {
+            return infoDictionaryValue
+        }
+        return "uin_H1z_5VBcGn_yTnd5CCtC2Yhu6Mfv"
+    }
 }

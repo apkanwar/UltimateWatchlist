@@ -23,7 +23,8 @@ struct AnimeRowView: View {
         _entry = Query(filter: predicate)
     }
 
-    private var libraryStatus: LibraryStatus? { entry.first?.status }
+    private var entryModel: LibraryEntryModel? { entry.first }
+    private var isInLibrary: Bool { entryModel != nil }
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -32,6 +33,14 @@ struct AnimeRowView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 8))
 
             VStack(alignment: .leading, spacing: 6) {
+                Label(anime.kind.displayName, systemImage: mediaTypeIconName)
+                    .font(.caption.weight(.semibold))
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(tagBackground)
+                    .foregroundStyle(tagForeground)
+                    .clipShape(Capsule())
+
                 Text(anime.title)
                     .font(.headline)
                     .foregroundStyle(.primary)
@@ -59,31 +68,33 @@ struct AnimeRowView: View {
 
             Spacer()
 
-            Menu {
-                ForEach(LibraryStatus.allCases) { status in
-                    Button(status.rawValue) {
-                        withAnimation { upsertFromDTO(status: status) }
-                    }
-                }
-
-                if libraryStatus != nil {
-                    Divider()
+            if isInLibrary {
+                Menu {
                     Button(role: .destructive) {
-                        withAnimation { removeEntry() }
+                        removeEntry()
                     } label: {
                         Label("Remove from Library", systemImage: "trash")
                     }
+                } label: {
+                    Label("Added", systemImage: "checkmark.circle.fill")
+                        .font(.footnote)
+                        .padding(.top, 4)
                 }
-            } label: {
-                Label(libraryStatus?.rawValue ?? "Add", systemImage: libraryStatus?.systemImageName ?? "plus.circle")
-                    .font(.footnote)
-                    .padding(.top, 4)
+            } else {
+                Button {
+                    addToLibrary()
+                } label: {
+                    Label("Add", systemImage: "plus.circle.fill")
+                        .font(.footnote)
+                        .padding(.top, 4)
+                }
+                .buttonStyle(.borderedProminent)
             }
         }
         .padding(.vertical, 8)
     }
 
-    private func upsertFromDTO(status: LibraryStatus) {
+    private func addToLibrary() {
         // Upsert genres
         let genreModels: [AnimeGenreModel] = anime.genres.map { g in
             let fetch = try? modelContext.fetch(
@@ -107,19 +118,45 @@ struct AnimeRowView: View {
         // Upsert entry
         let existingEntry = try? modelContext.fetch(FetchDescriptor<LibraryEntryModel>(predicate: #Predicate { $0.id == anime.id })).first
         if let entry = existingEntry {
-            entry.status = status
             entry.addedAt = Date()
         } else {
-            let entry = LibraryEntryModel(id: anime.id, status: status, addedAt: Date(), anime: animeModel)
+            let entry = LibraryEntryModel(id: anime.id, status: .planToWatch, addedAt: Date(), anime: animeModel)
             modelContext.insert(entry)
         }
-        try? modelContext.save()
+        Task { @MainActor in
+            try? modelContext.save()
+        }
     }
 
     private func removeEntry() {
         if let e = entry.first {
             modelContext.delete(e)
-            try? modelContext.save()
+            Task { @MainActor in
+                try? modelContext.save()
+            }
+        }
+    }
+
+    private var tagBackground: Color {
+        #if canImport(UIKit)
+        return Color(UIColor.tertiarySystemFill)
+        #else
+        return Color.secondary.opacity(0.2)
+        #endif
+    }
+
+    private var tagForeground: Color {
+        #if canImport(UIKit)
+        return Color(UIColor.label)
+        #else
+        return Color.primary
+        #endif
+    }
+
+    private var mediaTypeIconName: String {
+        switch anime.kind {
+        case .anime: return "sparkles.tv"
+        case .tvShow: return "tv.fill"
         }
     }
 }

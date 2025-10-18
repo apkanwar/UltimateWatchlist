@@ -20,11 +20,21 @@ struct DiscoverView: View {
     @State private var isSearchPanelVisible = false
     @State private var isSettingsPanelVisible = false
     @State private var genreFilter: AnimeGenre?
+    @State private var isAnimeRecommendationsExpanded = true
+    @State private var isShowRecommendationsExpanded = true
 
     var selectedGenreFilter: AnimeGenre? { genreFilter }
 
     // Observe watchlist changes
     @Query private var watchlistEntries: [LibraryEntryModel]
+
+    private var animeLibraryEntries: [LibraryEntryModel] {
+        watchlistEntries.filter { $0.anime.kind == .anime }
+    }
+
+    private var showLibraryEntries: [LibraryEntryModel] {
+        watchlistEntries.filter { $0.anime.kind == .tvShow }
+    }
 
     init(viewModel: DiscoverViewModel) {
         _viewModel = StateObject(wrappedValue: viewModel)
@@ -130,11 +140,10 @@ struct DiscoverView: View {
             viewModel.cancelSearch()
         }
         .task {
-            viewModel.loadInitial()
-            refreshRecommendationsIfNeeded()
+            refreshRecommendationsIfNeeded(force: true)
         }
         .onChange(of: watchlistEntries) { _, _ in
-            refreshRecommendationsIfNeeded()
+            refreshRecommendationsIfNeeded(force: true)
         }
     }
 
@@ -154,11 +163,13 @@ struct DiscoverView: View {
         return min(max(ideal, minWidth), maxWidth)
     }
 
-    private func refreshRecommendationsIfNeeded() {
+    private func refreshRecommendationsIfNeeded(force: Bool = false) {
         let key = "com.codex.UltimateWatchlist.lastRecommendationsRefresh"
         let defaults = UserDefaults.standard
         let now = Date()
-        if let last = defaults.object(forKey: key) as? Date, now.timeIntervalSince(last) < 60 * 60 * 24 {
+        if !force,
+           let last = defaults.object(forKey: key) as? Date,
+           now.timeIntervalSince(last) < 60 * 60 * 24 {
             return
         }
         viewModel.refreshRecommendations(using: modelContext)
@@ -167,29 +178,15 @@ struct DiscoverView: View {
 
     private func mainContent(width: CGFloat) -> some View {
         Group {
-            if viewModel.isLoadingInitial && viewModel.trending.isEmpty {
-                ProgressView("Loading anime…")
+            if viewModel.isLoadingRecommendations && viewModel.animeRecommendations.isEmpty && viewModel.showRecommendations.isEmpty {
+                ProgressView("Loading recommendations…")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if let error = viewModel.errorMessage, viewModel.trending.isEmpty {
-                VStack(spacing: 16) {
-                    ContentUnavailableView(
-                        "Unable to load anime",
-                        systemImage: "wifi.slash",
-                        description: Text(error)
-                    )
-                    Button {
-                        viewModel.loadInitial()
-                    } label: {
-                        Label("Retry", systemImage: "arrow.clockwise")
-                    }
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 20) {
+                    VStack(alignment: .leading, spacing: 24) {
                         if let filter = genreFilter { genreFilterIndicator(filter: filter) }
-                        recommendationsSection(width: width)
-                        trendingSection(width: width)
+                        animeRecommendationsSection(width: width)
+                        showRecommendationsSection(width: width)
                     }
                     .padding(.horizontal, 20)
                     .padding(.vertical, 28)
@@ -199,82 +196,165 @@ struct DiscoverView: View {
         }
     }
 
-    private func recommendationsSection(width: CGFloat) -> some View {
-        let items = Array(filteredAnime(viewModel.recommendations).prefix(12))
-        return VStack(alignment: .leading, spacing: 12) {
-            Text("For You")
-                .font(.title3.weight(.semibold))
+    private func animeRecommendationsSection(width: CGFloat) -> some View {
+        let items = filteredMedia(viewModel.animeRecommendations)
+        let hasPersonalisedAnime = !animeLibraryEntries.isEmpty
 
-            if watchlistEntries.isEmpty {
-                Text("Add anime to your library to get personalised suggestions.")
-                    .foregroundStyle(.secondary)
-            } else if items.isEmpty {
-                if viewModel.isLoadingInitial {
+        return VStack(alignment: .leading, spacing: 12) {
+            sectionHeader(
+                title: "Anime Recommendations",
+                isExpanded: $isAnimeRecommendationsExpanded,
+                currentPage: 0,
+                totalPages: 1,
+                onPrevious: {},
+                onNext: {}
+            )
+
+            if isAnimeRecommendationsExpanded {
+                if viewModel.isLoadingRecommendations && viewModel.animeRecommendations.isEmpty {
                     HStack(spacing: 8) {
                         ProgressView()
-                        Text("Loading recommendations…")
+                        Text("Loading anime recommendations…")
+                            .foregroundStyle(.secondary)
+                    }
+                } else if items.isEmpty {
+                    if genreFilter != nil, !viewModel.animeRecommendations.isEmpty {
+                        Text("No titles match the selected genre.")
+                            .foregroundStyle(.secondary)
+                    } else if let message = viewModel.animeRecommendationsErrorMessage {
+                        Text(message).foregroundStyle(.secondary)
+                    } else {
+                        Text("No anime recommendations available right now. Try again later.")
                             .foregroundStyle(.secondary)
                     }
                 } else {
-                    Text("We couldn't find recommendations right now. Try again later.")
-                        .foregroundStyle(.secondary)
+                    if !hasPersonalisedAnime {
+                        Text("Showing top 10 highest rated anime. Add anime to your library for personalised picks.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                    horizontalCarousel(for: items, availableWidth: width)
                 }
-            } else {
-                responsiveGrid(for: items, availableWidth: width)
             }
         }
     }
 
-    private func trendingSection(width: CGFloat) -> some View {
-        let items = Array(filteredAnime(viewModel.trending).prefix(12))
+    private func showRecommendationsSection(width: CGFloat) -> some View {
+        let items = filteredMedia(viewModel.showRecommendations)
+        let hasPersonalisedShows = !showLibraryEntries.isEmpty
+
         return VStack(alignment: .leading, spacing: 12) {
-            Text("Trending Now")
-                .font(.title3.weight(.semibold))
+            sectionHeader(
+                title: "Show Recommendations",
+                isExpanded: $isShowRecommendationsExpanded,
+                currentPage: 0,
+                totalPages: 1,
+                onPrevious: {},
+                onNext: {}
+            )
 
-            if items.isEmpty {
-                Text(genreFilter != nil ? "No titles match the selected genre." : "Trending titles are currently unavailable.")
-                    .foregroundStyle(.secondary)
-            } else {
-                responsiveGrid(for: items, availableWidth: width)
+            if isShowRecommendationsExpanded {
+                if viewModel.isLoadingRecommendations && viewModel.showRecommendations.isEmpty {
+                    HStack(spacing: 8) {
+                        ProgressView()
+                        Text("Loading show recommendations…")
+                            .foregroundStyle(.secondary)
+                    }
+                } else if items.isEmpty {
+                    if genreFilter != nil, !viewModel.showRecommendations.isEmpty {
+                        Text("No titles match the selected genre.")
+                            .foregroundStyle(.secondary)
+                    } else if let message = viewModel.showRecommendationsErrorMessage {
+                        Text(message).foregroundStyle(.secondary)
+                    } else {
+                        Text("No show recommendations available right now. Try again later.")
+                            .foregroundStyle(.secondary)
+                    }
+                } else {
+                    if !hasPersonalisedShows {
+                        Text("Showing top 10 highest rated TV shows. Add shows to your library for personalised picks.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                    horizontalCarousel(for: items, availableWidth: width)
+                }
             }
         }
     }
 
-    @ViewBuilder
-    private func responsiveGrid(for items: [Anime], availableWidth: CGFloat) -> some View {
-        let columns = columns(for: availableWidth)
-        LazyVGrid(columns: columns, spacing: 12) {
-            ForEach(items) { anime in
-                AnimeDetailCardView(
-                    anime: anime,
-                    onGenreTap: handleGenreTap,
-                    allowLocalMediaLinking: false,
-                    synopsisLineLimit: 5
-                )
-                    .frame(maxWidth: .infinity)
-            }
-        }
-    }
-
-    private func columns(for availableWidth: CGFloat) -> [GridItem] {
+    private func horizontalCarousel(for items: [Anime], availableWidth: CGFloat) -> some View {
         let horizontalPadding: CGFloat = 40
-        let spacing: CGFloat = 20
         let usableWidth = max(availableWidth - horizontalPadding, 320)
-        let minColumnWidth: CGFloat = 320
-        let maxColumns = 4
+        let cardWidth = min(max(usableWidth * 0.38, 220), 340)
 
-        var columnCount = Int((usableWidth + spacing) / (minColumnWidth + spacing))
-        columnCount = max(1, min(maxColumns, columnCount))
-
-        let columnWidth = (usableWidth - CGFloat(columnCount - 1) * spacing) / CGFloat(columnCount)
-        let column = GridItem(.flexible(minimum: columnWidth, maximum: columnWidth), spacing: spacing)
-        return Array(repeating: column, count: columnCount)
+        return ScrollView(.horizontal, showsIndicators: false) {
+            LazyHStack(spacing: 16) {
+                ForEach(items) { anime in
+                    AnimeDetailCardView(
+                        anime: anime,
+                        onGenreTap: handleGenreTap,
+                        allowLocalMediaLinking: false,
+                        synopsisLineLimit: 4
+                    )
+                    .frame(width: cardWidth)
+                }
+            }
+            .padding(.vertical, 4)
+        }
     }
 
-    private func filteredAnime(_ items: [Anime]) -> [Anime] {
+    private func sectionHeader(
+        title: String,
+        isExpanded: Binding<Bool>,
+        currentPage: Int,
+        totalPages: Int,
+        onPrevious: @escaping () -> Void,
+        onNext: @escaping () -> Void
+    ) -> some View {
+        HStack(spacing: 12) {
+            Button {
+                withAnimation(.easeInOut) { isExpanded.wrappedValue.toggle() }
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: isExpanded.wrappedValue ? "chevron.down.circle.fill" : "chevron.right.circle.fill")
+                        .imageScale(.small)
+                    Text(title)
+                        .font(.title3.weight(.semibold))
+                }
+            }
+            .buttonStyle(.plain)
+
+            Spacer()
+
+            if totalPages > 1 {
+                HStack(spacing: 8) {
+                    Button(action: onPrevious) {
+                        Image(systemName: "chevron.left")
+                    }
+                    .buttonStyle(.borderless)
+                    .disabled(currentPage <= 0)
+
+                    Text("\(currentPage + 1) / \(totalPages)")
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.secondary)
+
+                    Button(action: onNext) {
+                        Image(systemName: "chevron.right")
+                    }
+                    .buttonStyle(.borderless)
+                    .disabled(currentPage >= totalPages - 1)
+                }
+            }
+        }
+    }
+
+    private func filteredMedia(_ items: [Anime]) -> [Anime] {
         guard let filter = genreFilter else { return items }
+        let target = filter.name.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
         return items.filter { anime in
-            anime.genres.contains(where: { $0.id == filter.id })
+            anime.genres.contains {
+                $0.name.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current) == target
+            }
         }
     }
 
@@ -337,7 +417,14 @@ private struct DiscoverSearchPanel: View {
                 Label("Search", systemImage: "magnifyingglass").font(.headline)
             }
 
-            TextField("Search anime", text: searchBinding)
+            Picker("Type", selection: $viewModel.searchScope) {
+                ForEach(DiscoverSearchScope.allCases) { scope in
+                    Text(scope.displayName).tag(scope)
+                }
+            }
+            .pickerStyle(.segmented)
+
+            TextField("Search titles", text: searchBinding)
                 .textFieldStyle(.roundedBorder)
 #if os(iOS)
                 .textInputAutocapitalization(.never)
@@ -355,7 +442,8 @@ private struct DiscoverSearchPanel: View {
                 } else if let message = viewModel.searchErrorMessage {
                     Text(message).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
                 } else if viewModel.searchResults.isEmpty {
-                    Text(viewModel.searchQuery.isEmpty ? "Type a title to start searching." : "No anime found for \"\(viewModel.searchQuery)\".")
+                    let scopeLabel = viewModel.searchScope == .anime ? "anime" : "TV shows"
+                    Text(viewModel.searchQuery.isEmpty ? "Type a title to start searching." : "No \(scopeLabel) found for \"\(viewModel.searchQuery)\".")
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 } else {
@@ -371,11 +459,11 @@ private struct DiscoverSearchPanel: View {
                                     },
                                     allowLocalMediaLinking: false,
                                     synopsisLineLimit: 5,
-                                    cardHeight: 360
+                                    
                                 )
                             }
                         }
-                        .padding(.bottom, 12)
+                        
                     }
                 }
             }
@@ -386,6 +474,11 @@ private struct DiscoverSearchPanel: View {
         .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
         .shadow(color: Color.black.opacity(0.12), radius: 18, x: 0, y: 10)
         .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).strokeBorder(Color.primary.opacity(0.05)))
+        .onChange(of: viewModel.searchScope) { _, _ in
+            if !viewModel.searchQuery.isEmpty {
+                viewModel.searchDebounced()
+            }
+        }
         .onAppear { isSearchFieldFocused = true }
     }
 

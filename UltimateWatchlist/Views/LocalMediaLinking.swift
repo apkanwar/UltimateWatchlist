@@ -13,7 +13,7 @@ import AppKit
 
 // MARK: - EpisodeFile
 
-public struct EpisodeFile: Identifiable {
+public struct EpisodeFile: Identifiable, Hashable {
     public let id: URL
     public let url: URL
     public let displayName: String
@@ -87,6 +87,13 @@ public struct EpisodeFile: Identifiable {
         
         return nil
     }
+    public static func == (lhs: EpisodeFile, rhs: EpisodeFile) -> Bool {
+        lhs.id == rhs.id
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+    }
 }
 
 // MARK: - LocalMediaError
@@ -119,6 +126,20 @@ public enum LocalMediaError: Error, LocalizedError {
 @MainActor
 public final class LocalMediaManager {
     private init() {}
+    
+    private final class ScopedFolderAccessHolder {
+        let url: URL
+        init(url: URL) {
+            self.url = url
+        }
+        deinit {
+            Task { @MainActor in
+                LocalMediaManager.stopAccessIfNeeded(url: url)
+            }
+        }
+    }
+    
+    private static var folderAccessAssociationKey: UInt8 = 0
     
     // MARK: Link Folder
     
@@ -238,26 +259,26 @@ public final class LocalMediaManager {
         var files: [EpisodeFile] = []
         let fm = FileManager.default
         let keys: [URLResourceKey] = [.isRegularFileKey, .nameKey]
-        
+
         guard let enumerator = fm.enumerator(at: folderURL, includingPropertiesForKeys: keys, options: [.skipsHiddenFiles, .skipsPackageDescendants]) else {
             throw LocalMediaError.noEpisodesFound
         }
-        
+
         for case let fileURL as URL in enumerator {
             guard let resourceValues = try? fileURL.resourceValues(forKeys: Set(keys)),
                   resourceValues.isRegularFile == true else {
                 continue
             }
-            
+
             if videoExtensions.contains(fileURL.pathExtension.lowercased()) {
                 files.append(EpisodeFile(url: fileURL))
             }
         }
-        
+
         if files.isEmpty {
             throw LocalMediaError.noEpisodesFound
         }
-        
+
         return files.sorted {
             switch ($0.episodeNumber, $1.episodeNumber) {
             case let (a?, b?):
@@ -281,9 +302,21 @@ public final class LocalMediaManager {
     /// On iOS presents AVPlayerViewController on top-most.
     /// On macOS opens file with NSWorkspace.
     /// - Parameter file: EpisodeFile to play.
-    public static func presentPlayer(for file: EpisodeFile) {
+    public static func presentPlayer(for file: EpisodeFile, folderBookmark: Data? = nil) {
         #if os(iOS) || os(tvOS)
+        var folderAccessHolder: ScopedFolderAccessHolder?
+        if let bookmark = folderBookmark {
+            do {
+                let folderURL = try LocalMediaManager.resolveLinkedFolder(from: bookmark)
+                folderAccessHolder = ScopedFolderAccessHolder(url: folderURL)
+            } catch {
+                folderAccessHolder = nil
+            }
+        }
         let player = AVPlayer(url: file.url)
+        if let holder = folderAccessHolder {
+            objc_setAssociatedObject(player, &folderAccessAssociationKey, holder, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        }
         let playerVC = AVPlayerViewController()
         playerVC.player = player
         
@@ -298,7 +331,21 @@ public final class LocalMediaManager {
         }
         #elseif canImport(AppKit)
         DispatchQueue.main.async {
+            var linkedFolderURL: URL?
+            if let bookmark = folderBookmark {
+                do {
+                    linkedFolderURL = try LocalMediaManager.resolveLinkedFolder(from: bookmark)
+                } catch {
+                    linkedFolderURL = nil
+                }
+            }
             NSWorkspace.shared.open(file.url)
+            if let folderURL = linkedFolderURL {
+                let delay = DispatchTime.now() + .seconds(5)
+                DispatchQueue.main.asyncAfter(deadline: delay) {
+                    LocalMediaManager.stopAccessIfNeeded(url: folderURL)
+                }
+            }
         }
         #else
         // Unsupported platform - do nothing
@@ -388,3 +435,22 @@ public struct LocalMediaActionsButton: View {
 }
 
 #endif
+
+// MARK: - Playback capability helpers
+
+public extension LocalMediaManager {
+    private static let inlineSupportedExtensions: Set<String> = ["mp4", "m4v", "mov", "avi"]
+
+    static func supportsInlinePlayback(_ url: URL) -> Bool {
+        inlineSupportedExtensions.contains(url.pathExtension.lowercased())
+    }
+
+    static func splitQueueForInlinePlayback(_ queue: [EpisodeFile]) -> (playable: [EpisodeFile], firstUnsupported: EpisodeFile?) {
+        guard let index = queue.firstIndex(where: { !supportsInlinePlayback($0.url) }) else {
+            return (queue, nil)
+        }
+        let playable = Array(queue.prefix(index))
+        return (playable, queue[index])
+    }
+}
+

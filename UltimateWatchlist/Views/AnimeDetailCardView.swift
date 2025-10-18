@@ -9,7 +9,6 @@ import SwiftUI
 import SwiftData
 #if canImport(UIKit)
 import UIKit
-import AVKit
 #endif
 
 struct AnimeDetailCardView: View {
@@ -21,6 +20,8 @@ struct AnimeDetailCardView: View {
     var cardHeight: CGFloat?
 
     @Environment(\.modelContext) private var modelContext
+    @EnvironmentObject private var navigation: AppNavigation
+    @EnvironmentObject private var playbackCoordinator: PlaybackCoordinator
     @Query private var entry: [LibraryEntryModel]
 
     @State private var episodes: [EpisodeFile] = []
@@ -43,7 +44,7 @@ struct AnimeDetailCardView: View {
         _entry = Query(filter: predicate)
     }
 
-    private var watchlistStatus: LibraryStatus? { entry.first?.status }
+    private var isInLibrary: Bool { entry.first != nil }
     private var entryModel: LibraryEntryModel? { entry.first }
 
     private func refreshEpisodes() {
@@ -62,7 +63,9 @@ struct AnimeDetailCardView: View {
             if let e = entryModel {
                 e.linkedFolderBookmarkData = result.bookmark
                 e.linkedFolderDisplayPath = result.displayPath
-                try? modelContext.save()
+                Task { @MainActor in
+                    try? modelContext.save()
+                }
                 refreshEpisodes()
             }
         } catch { }
@@ -72,15 +75,95 @@ struct AnimeDetailCardView: View {
         if let e = entryModel {
             e.linkedFolderBookmarkData = nil
             e.linkedFolderDisplayPath = nil
-            try? modelContext.save()
+            Task { @MainActor in
+                try? modelContext.save()
+            }
             episodes = []
+        }
+    }
+    
+    @ViewBuilder
+    private var libraryActionControls: some View {
+        if entryModel != nil {
+            Menu {
+                if allowLocalMediaLinking {
+                    if entryModel?.linkedFolderBookmarkData == nil {
+                        Button {
+                            Task { await linkFolder() }
+                        } label: {
+                            Label("Link Folder", systemImage: "folder.badge.plus")
+                        }
+                    } else {
+                        Button(role: .destructive) {
+                            unlinkFolder()
+                        } label: {
+                            Label("Unlink Folder", systemImage: "folder.badge.minus")
+                        }
+                    }
+                }
+                
+                Button(role: .destructive) {
+                    removeEntry()
+                } label: {
+                    Label("Remove from Library", systemImage: "trash")
+                }
+            } label: {
+                Label("  In Library", systemImage: "bookmark.fill")
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(tagBackground, in: Capsule())
+                    .foregroundStyle(tagForeground)
+            }
+            .accessibilityLabel("Library options")
+        } else {
+            Button {
+                addToLibrary()
+            } label: {
+                Label("Add to Library", systemImage: "plus.circle.fill")
+                    .font(.footnote.weight(.semibold))
+            }
+            .buttonStyle(.borderedProminent)
         }
     }
 
     private func play(_ ep: EpisodeFile) {
-        LocalMediaManager.presentPlayer(for: ep)
+        guard allowLocalMediaLinking else { return }
+        guard let index = episodes.firstIndex(where: { $0.id == ep.id }) else { return }
+        let progress = PlaybackProgress(
+            episodeNumber: ep.episodeNumber ?? index + 1,
+            seconds: 0
+        )
+        presentPlayback(startingAt: index, initialProgress: progress)
     }
 
+    private func presentPlayback(startingAt index: Int, initialProgress: PlaybackProgress?) {
+        guard allowLocalMediaLinking else { return }
+        guard !episodes.isEmpty, episodes.indices.contains(index) else { return }
+        let queue = Array(episodes[index...])
+        beginPlayback(with: queue, baseIndex: index, initialProgress: initialProgress)
+    }
+
+    private func beginPlayback(with queue: [EpisodeFile], baseIndex: Int, initialProgress: PlaybackProgress?) {
+        guard allowLocalMediaLinking, !queue.isEmpty else { return }
+        let split = LocalMediaManager.splitQueueForInlinePlayback(queue)
+        guard !split.playable.isEmpty else {
+            if let unsupported = split.firstUnsupported {
+                LocalMediaManager.presentPlayer(for: unsupported, folderBookmark: entryModel?.linkedFolderBookmarkData)
+            }
+            return
+        }
+        playbackCoordinator.begin(
+            PlaybackRequest(
+                animeID: anime.id,
+                title: anime.title,
+                queue: split.playable,
+                baseIndex: baseIndex,
+                initialProgress: initialProgress,
+                externalFallback: split.firstUnsupported,
+                folderBookmarkData: entryModel?.linkedFolderBookmarkData
+            )
+        )
+    }
     private let cornerRadius: CGFloat = 18
 
     var body: some View {
@@ -91,8 +174,8 @@ struct AnimeDetailCardView: View {
                         .frame(width: 130, height: 190)
                         .clipShape(RoundedRectangle(cornerRadius: cornerRadius * 0.6))
                         .overlay(alignment: .bottomLeading) {
-                            if showStatusBadge, let status = watchlistStatus {
-                                Text(status.rawValue)
+                            if showStatusBadge, isInLibrary {
+                                Text("Options")
                                     .font(.caption2)
                                     .bold()
                                     .padding(.horizontal, 8)
@@ -101,55 +184,19 @@ struct AnimeDetailCardView: View {
                                     .padding(8)
                             }
                         }
-                    Menu {
-                        ForEach(LibraryStatus.allCases) { status in
-                            Button {
-                                withAnimation(.spring()) { upsertFromDTO(status: status) }
-                            } label: {
-                                Label(status.rawValue, systemImage: status.systemImageName)
-                            }
-                        }
-                        
-                        if watchlistStatus != nil {
-                            Divider()
-                            Button(role: .destructive) {
-                                withAnimation(.easeInOut) { removeEntry() }
-                            } label: {
-                                Label("Remove from Watchlist", systemImage: "trash")
-                            }
-                        }
-                        if allowLocalMediaLinking {
-                            Divider()
-                            if entryModel?.linkedFolderBookmarkData == nil {
-                                Button {
-                                    Task { await linkFolder() }
-                                } label: {
-                                    Label("Link Folder", systemImage: "folder.badge.plus")
-                                }
-                            } else {
-                                Button(role: .destructive) {
-                                    unlinkFolder()
-                                } label: {
-                                    Label("Unlink Folder", systemImage: "folder.badge.minus")
-                                }
-                            }
-                        }
-                    } label: {
-                        HStack(spacing: 6) {
-                            Image(systemName: "ellipsis.circle.fill")
-                                .imageScale(.large)
-                                .foregroundStyle(.secondary)
-
-                            Text("  Status")
-                                .foregroundColor(.secondary)
-                        }
-                        .padding(.top, 2)
-                    }
-                    .accessibilityLabel("More options")
+                    libraryActionControls
                 }
                 
 
                 VStack(alignment: .leading, spacing: 10) {
+                    Label(anime.kind.displayName, systemImage: mediaTypeIconName)
+                        .font(.caption.weight(.semibold))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(tagBackground)
+                        .foregroundStyle(tagForeground)
+                        .clipShape(Capsule())
+
                     HStack(alignment: .top) {
                         Text(anime.title)
                             .font(.headline)
@@ -180,9 +227,6 @@ struct AnimeDetailCardView: View {
                                 ForEach(episodes) { ep in
                                     Button {
                                         play(ep)
-                                        if let num = ep.episodeNumber {
-                                            PlaybackProgressStore.save(PlaybackProgress(episodeNumber: num, seconds: 0), for: anime.id)
-                                        }
                                     } label: {
                                         HStack {
                                             Text(ep.displayName)
@@ -220,7 +264,7 @@ struct AnimeDetailCardView: View {
                 refreshEpisodes()
             }
         }
-        .onChange(of: entryModel?.linkedFolderBookmarkData) { _ in
+        .onChange(of: entryModel?.linkedFolderBookmarkData) { _, _ in
             if allowLocalMediaLinking {
                 refreshEpisodes()
             }
@@ -265,7 +309,7 @@ struct AnimeDetailCardView: View {
         }
     }
 
-    private func upsertFromDTO(status: LibraryStatus) {
+    private func addToLibrary() {
         // Upsert genres
         let genreModels: [AnimeGenreModel] = anime.genres.map { g in
             // Attempt to fetch an existing genre model
@@ -288,19 +332,22 @@ struct AnimeDetailCardView: View {
         // Upsert entry
         let existingEntry = try? modelContext.fetch(FetchDescriptor<LibraryEntryModel>(predicate: #Predicate { $0.id == anime.id })).first
         if let entry = existingEntry {
-            entry.status = status
             entry.addedAt = Date()
         } else {
-            let entry = LibraryEntryModel(id: anime.id, status: status, addedAt: Date(), anime: animeModel)
+            let entry = LibraryEntryModel(id: anime.id, status: .planToWatch, addedAt: Date(), anime: animeModel)
             modelContext.insert(entry)
         }
-        try? modelContext.save()
+        Task { @MainActor in
+            try? modelContext.save()
+        }
     }
 
     private func removeEntry() {
         if let entry = entry.first {
             modelContext.delete(entry)
-            try? modelContext.save()
+            Task { @MainActor in
+                try? modelContext.save()
+            }
         }
     }
 
@@ -335,6 +382,36 @@ struct AnimeDetailCardView: View {
         return Color.primary
         #endif
     }
+
+    private var mediaTypeIconName: String {
+        switch anime.kind {
+        case .anime: return "sparkles.tv"
+        case .tvShow: return "tv.fill"
+        }
+    }
+
+    private func resolveStartIndex(for episodes: [EpisodeFile], progress: PlaybackProgress?) -> Int {
+        guard let progress else { return 0 }
+        if let match = episodes.firstIndex(where: { $0.episodeNumber == progress.episodeNumber }) {
+            return match
+        }
+        let fallback = progress.episodeNumber - 1
+        if fallback >= 0 && fallback < episodes.count {
+            return fallback
+        }
+        return 0
+    }
+
+    private func adjustedProgress(_ progress: PlaybackProgress?, for episodes: [EpisodeFile], startIndex: Int) -> PlaybackProgress? {
+        guard let progress else { return nil }
+        let episode = episodes[startIndex]
+        let number = episode.episodeNumber ?? (startIndex + 1)
+        if number == progress.episodeNumber {
+            return progress
+        }
+        return PlaybackProgress(episodeNumber: number, seconds: progress.seconds)
+    }
+
 }
 
 #if DEBUG
@@ -354,5 +431,7 @@ struct AnimeDetailCardView: View {
         onGenreTap: { _ in },
         allowLocalMediaLinking: true
     )
+    .environmentObject(AppNavigation())
+    .environmentObject(PlaybackCoordinator())
 }
 #endif

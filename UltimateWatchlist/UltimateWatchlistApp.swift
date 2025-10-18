@@ -4,8 +4,15 @@ import SwiftData
 @main
 struct UltimateWatchlistApp: App {
     @State private var container: ModelContainer = {
-        let schema = Schema([AnimeModel.self, AnimeGenreModel.self, LibraryEntryModel.self])
-        return try! ModelContainer(for: schema)
+        do {
+            return try ModelContainer(
+                for: AnimeModel.self,
+                AnimeGenreModel.self,
+                LibraryEntryModel.self
+            )
+        } catch {
+            fatalError("Failed to create ModelContainer: \(error)")
+        }
     }()
 
     var body: some Scene {
