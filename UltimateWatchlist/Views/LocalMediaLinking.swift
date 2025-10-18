@@ -126,6 +126,24 @@ public enum LocalMediaError: Error, LocalizedError {
 @MainActor
 public final class LocalMediaManager {
     private init() {}
+
+    public typealias FolderLinkResult = (bookmark: Data, displayPath: String)
+
+    private static var bookmarkOptions: URL.BookmarkCreationOptions {
+#if os(macOS)
+        return [.withSecurityScope]
+#else
+        return []
+#endif
+    }
+
+    private static var bookmarkResolutionOptions: URL.BookmarkResolutionOptions {
+#if os(macOS)
+        return [.withSecurityScope]
+#else
+        return []
+#endif
+    }
     
     private final class ScopedFolderAccessHolder {
         let url: URL
@@ -153,7 +171,8 @@ public final class LocalMediaManager {
             }
         }
         
-        if let window = UIApplication.shared.delegate?.window??,
+        if let windowProvider = UIApplication.shared.delegate?.window,
+           let window = windowProvider,
            let root = window.rootViewController {
             return topViewController(from: root)
         }
@@ -181,13 +200,13 @@ public final class LocalMediaManager {
     
     /// Link local folder using platform-specific UI and return bookmark data and display path.
     /// The caller is responsible for persisting these values on the entry model.
-    public static func linkFolder() async throws -> (bookmark: Data, displayPath: String) {
+    public static func linkFolder() async throws -> FolderLinkResult {
         #if os(iOS) || os(tvOS)
         // UIDocumentPicker for folder selection
-        return try await withCheckedThrowingContinuation { continuation in
+        return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<FolderLinkResult, Error>) in
             class Delegate: NSObject, UIDocumentPickerDelegate {
-                var continuation: CheckedContinuation<(Data, String), Error>?
-                init(continuation: CheckedContinuation<(Data, String), Error>) {
+                var continuation: CheckedContinuation<FolderLinkResult, Error>?
+                init(continuation: CheckedContinuation<FolderLinkResult, Error>) {
                     self.continuation = continuation
                 }
                 func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
@@ -198,8 +217,8 @@ public final class LocalMediaManager {
                     }
                     do {
                         // Create security scoped bookmark
-                        let bookmark = try url.bookmarkData(options: [.withSecurityScope], includingResourceValuesForKeys: nil, relativeTo: nil)
-                        continuation?.resume(returning: (bookmark, url.lastPathComponent))
+                        let bookmark = try url.bookmarkData(options: LocalMediaManager.bookmarkOptions, includingResourceValuesForKeys: nil, relativeTo: nil)
+                        continuation?.resume(returning: (bookmark: bookmark, displayPath: url.lastPathComponent))
                         continuation = nil
                     } catch {
                         continuation?.resume(throwing: error)
@@ -243,7 +262,7 @@ public final class LocalMediaManager {
         }
         
         do {
-            let bookmark = try url.bookmarkData(options: [.withSecurityScope], includingResourceValuesForKeys: nil, relativeTo: nil)
+            let bookmark = try url.bookmarkData(options: bookmarkOptions, includingResourceValuesForKeys: nil, relativeTo: nil)
             return (bookmark, url.lastPathComponent)
         } catch {
             throw error
@@ -264,7 +283,7 @@ public final class LocalMediaManager {
     public static func resolveLinkedFolder(from bookmarkData: Data) throws -> URL {
         var isStale = false
         let url = try URL(resolvingBookmarkData: bookmarkData,
-                          options: [.withSecurityScope],
+                          options: bookmarkResolutionOptions,
                           relativeTo: nil,
                           bookmarkDataIsStale: &isStale)
         guard url.startAccessingSecurityScopedResource() else {

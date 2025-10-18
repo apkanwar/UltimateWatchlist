@@ -5,13 +5,11 @@ struct SettingsView: View {
     @Environment(\.modelContext) private var modelContext
     @Query private var entries: [LibraryEntryModel]
 
-    private let refreshKey = "com.codex.UltimateWatchlist.lastRecommendationsRefresh"
-
     var body: some View {
         List {
             Section("Recommendations") {
                 Button {
-                    UserDefaults.standard.removeObject(forKey: refreshKey)
+                    AppUserDefaults.clearRecommendationsThrottle()
                 } label: {
                     Label("Refresh recommendations now", systemImage: "arrow.clockwise")
                 }
@@ -33,7 +31,7 @@ struct SettingsView: View {
 
                 Button {
                     // Reset migration state
-                    UserDefaults.standard.removeObject(forKey: "com.codex.UltimateWatchlist.migratedToSwiftData")
+                    AppUserDefaults.clearMigrationFlag()
                 } label: {
                     Label("Reset migration state", systemImage: "arrow.uturn.backward")
                 }
@@ -50,7 +48,6 @@ struct SettingsView: View {
 }
 
 #Preview {
-    let container = try! ModelContainer(for: AnimeModel.self, AnimeGenreModel.self, LibraryEntryModel.self, configurations: ModelConfiguration(isStoredInMemoryOnly: true))
-    return NavigationStack { SettingsView() }
-        .modelContainer(container)
+    NavigationStack { SettingsView() }
+        .modelContainer(PreviewData.makeContainer(populated: true))
 }

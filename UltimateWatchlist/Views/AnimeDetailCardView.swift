@@ -431,6 +431,7 @@ struct AnimeDetailCardView: View {
         onGenreTap: { _ in },
         allowLocalMediaLinking: true
     )
+    .modelContainer(PreviewData.makeContainer(populated: true))
     .environmentObject(AppNavigation())
     .environmentObject(PlaybackCoordinator())
 }

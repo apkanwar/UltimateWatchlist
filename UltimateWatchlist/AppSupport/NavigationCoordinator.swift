@@ -3,7 +3,6 @@ import Foundation
 
 enum AppTab: Hashable {
     case discover
-    case resume
     case library
 }
 

@@ -339,9 +339,10 @@ struct LocalMediaPlaybackScreen: View {
                 ToolbarItem(placement: .primaryAction) {
                     Button(controller.isPlaying ? "Pause" : "Play") {
                         controller.togglePlayback()
-                    }
-                }
-            }
+        }
+    }
+}
+
         }
         .interactiveDismissDisabled()
         .onAppear { controller.start() }
@@ -350,8 +351,28 @@ struct LocalMediaPlaybackScreen: View {
             guard didFinish else { return }
             dismiss()
             onDismiss?()
-        }
     }
+}
+
+#if DEBUG
+private struct LocalMediaPlaybackScreenPreview: View {
+    var body: some View {
+        let episodes = PreviewData.sampleEpisodes()
+        LocalMediaPlaybackScreen(
+            animeID: 101,
+            animeTitle: "Sample Series",
+            queue: episodes,
+            baseIndex: 0,
+            initialProgress: PlaybackProgress(episodeNumber: 1, seconds: 42),
+            externalFallback: episodes.last
+        )
+    }
+}
+
+#Preview("Inline Player") {
+    LocalMediaPlaybackScreenPreview()
+}
+#endif
 
     @ViewBuilder
     private func playbackErrorView(message: String) -> some View {

@@ -55,9 +55,16 @@ struct LibraryView: View {
 }
 
 #if DEBUG
-#Preview {
+#Preview("Empty Library") {
     LibraryView()
-        .modelContainer(for: [AnimeModel.self, AnimeGenreModel.self, LibraryEntryModel.self], inMemory: true)
+        .modelContainer(PreviewData.makeContainer(populated: false))
+        .environmentObject(AppNavigation())
+        .environmentObject(PlaybackCoordinator())
+}
+
+#Preview("Populated Library") {
+    LibraryView()
+        .modelContainer(PreviewData.makeContainer(populated: true))
         .environmentObject(AppNavigation())
         .environmentObject(PlaybackCoordinator())
 }
@@ -181,14 +188,6 @@ private struct LibraryContent: View {
         Color(UIColor.secondarySystemGroupedBackground)
         #else
         Color.secondary.opacity(0.12)
-        #endif
-    }
-
-    private var headerBackgroundColor: Color {
-        #if canImport(UIKit)
-        Color(UIColor.systemGroupedBackground)
-        #else
-        Color.secondary.opacity(0.08)
         #endif
     }
 

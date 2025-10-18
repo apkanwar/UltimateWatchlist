@@ -54,9 +54,9 @@ final class AnimeService {
         if let info = Bundle.main.infoDictionary,
            let appName = info["CFBundleName"] as? String,
            let version = info["CFBundleShortVersionString"] as? String {
-            userAgent = "\(appName)/\(version) (UltimateWatchlist)"
+            userAgent = "\(appName)/\(version) (UltimateLibrary)"
         } else {
-            userAgent = "UltimateWatchlist/1.0"
+            userAgent = "UltimateLibrary/1.0"
         }
     }
 

@@ -25,20 +25,22 @@ struct DiscoverView: View {
 
     var selectedGenreFilter: AnimeGenre? { genreFilter }
 
-    // Observe watchlist changes
-    @Query private var watchlistEntries: [LibraryEntryModel]
+    // Observe library changes
+    @Query private var libraryEntries: [LibraryEntryModel]
 
     private var animeLibraryEntries: [LibraryEntryModel] {
-        watchlistEntries.filter { $0.anime.kind == .anime }
+        libraryEntries.filter { $0.anime.kind == .anime }
     }
 
     private var showLibraryEntries: [LibraryEntryModel] {
-        watchlistEntries.filter { $0.anime.kind == .tvShow }
+        libraryEntries.filter { $0.anime.kind == .tvShow }
     }
 
-    init(viewModel: DiscoverViewModel) {
+    init(viewModel: DiscoverViewModel, showSearchPanel: Bool = false, showSettingsPanel: Bool = false) {
         _viewModel = StateObject(wrappedValue: viewModel)
-        _watchlistEntries = Query()
+        _libraryEntries = Query()
+        _isSearchPanelVisible = State(initialValue: showSearchPanel)
+        _isSettingsPanelVisible = State(initialValue: showSettingsPanel)
     }
 
     var body: some View {
@@ -142,7 +144,7 @@ struct DiscoverView: View {
         .task {
             refreshRecommendationsIfNeeded(force: true)
         }
-        .onChange(of: watchlistEntries) { _, _ in
+        .onChange(of: libraryEntries) { _, _ in
             refreshRecommendationsIfNeeded(force: true)
         }
     }
@@ -164,16 +166,14 @@ struct DiscoverView: View {
     }
 
     private func refreshRecommendationsIfNeeded(force: Bool = false) {
-        let key = "com.codex.UltimateWatchlist.lastRecommendationsRefresh"
-        let defaults = UserDefaults.standard
         let now = Date()
         if !force,
-           let last = defaults.object(forKey: key) as? Date,
+           let last = AppUserDefaults.lastRecommendationsRefreshDate(),
            now.timeIntervalSince(last) < 60 * 60 * 24 {
             return
         }
         viewModel.refreshRecommendations(using: modelContext)
-        defaults.set(now, forKey: key)
+        AppUserDefaults.setLastRecommendationsRefreshDate(now)
     }
 
     private func mainContent(width: CGFloat) -> some View {
@@ -537,10 +537,21 @@ private struct SettingsPanel<Content: View>: View {
 }
 
 #if DEBUG
-#Preview {
-    // In-memory SwiftData container for previews
-    let container = try! ModelContainer(for: AnimeModel.self, AnimeGenreModel.self, LibraryEntryModel.self, configurations: ModelConfiguration(isStoredInMemoryOnly: true))
-    return DiscoverView(viewModel: DiscoverViewModel())
+#Preview("Recommendations") {
+    let container = PreviewData.makeContainer(populated: true)
+    return DiscoverView(viewModel: DiscoverViewModel.previewModel())
+        .modelContainer(container)
+}
+
+#Preview("Search Panel") {
+    let container = PreviewData.makeContainer(populated: true)
+    return DiscoverView(viewModel: DiscoverViewModel.previewModel(), showSearchPanel: true)
+        .modelContainer(container)
+}
+
+#Preview("Settings Panel") {
+    let container = PreviewData.makeContainer(populated: true)
+    return DiscoverView(viewModel: DiscoverViewModel.previewModel(), showSettingsPanel: true)
         .modelContainer(container)
 }
 #endif

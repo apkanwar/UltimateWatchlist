@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import SwiftData
 
 struct ContentView: View {
     @StateObject private var discoverViewModel = DiscoverViewModel()
@@ -27,9 +28,33 @@ struct ContentView: View {
         }
         .environmentObject(navigation)
         .environmentObject(playbackCoordinator)
+        .sheet(item: $playbackCoordinator.pendingRequest) { request in
+            LocalMediaPlaybackRoot(request: request)
+                .environmentObject(playbackCoordinator)
+        }
     }
 }
 
 #Preview {
     ContentView()
+        .modelContainer(PreviewData.makeContainer(populated: true))
+}
+
+private struct LocalMediaPlaybackRoot: View {
+    @EnvironmentObject private var playbackCoordinator: PlaybackCoordinator
+    let request: PlaybackRequest
+
+    var body: some View {
+        LocalMediaPlaybackScreen(
+            animeID: request.animeID,
+            animeTitle: request.title,
+            queue: request.queue,
+            baseIndex: request.baseIndex,
+            initialProgress: request.initialProgress,
+            externalFallback: request.externalFallback,
+            folderBookmarkData: request.folderBookmarkData
+        ) {
+            playbackCoordinator.clear()
+        }
+    }
 }

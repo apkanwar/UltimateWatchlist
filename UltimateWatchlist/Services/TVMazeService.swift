@@ -5,7 +5,6 @@
 //  Created by Codex on 2025-10-13.
 //
 
-import CoreFoundation
 import Foundation
 
 enum TVMazeServiceError: Error, LocalizedError {
@@ -282,9 +281,18 @@ private enum TVMazeMapper {
 
     private static func decodeHTMLEntities(in string: String) -> String {
         guard !string.isEmpty else { return string }
-        guard let unescaped = CFXMLCreateStringByUnescapingEntities(nil, string as CFString, nil) else {
-            return string
+        var result = string
+        let entities: [(String, String)] = [
+            ("&amp;", "&"),
+            ("&lt;", "<"),
+            ("&gt;", ">"),
+            ("&quot;", "\""),
+            ("&#39;", "'"),
+            ("&#039;", "'")
+        ]
+        for (entity, character) in entities {
+            result = result.replacingOccurrences(of: entity, with: character)
         }
-        return unescaped as String
+        return result
     }
 }

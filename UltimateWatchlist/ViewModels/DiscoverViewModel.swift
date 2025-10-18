@@ -61,8 +61,6 @@ final class DiscoverViewModel: ObservableObject {
         self.tvShowService = tvShowService ?? .shared
     }
 
-    deinit {}
-
     func loadInitial() {
         Task { await fetchInitialContent() }
     }
@@ -261,3 +259,55 @@ final class DiscoverViewModel: ObservableObject {
         }
     }
 }
+
+#if DEBUG
+extension DiscoverViewModel {
+    @MainActor
+    static func previewModel() -> DiscoverViewModel {
+        let model = DiscoverViewModel()
+        model.populatePreviewData()
+        return model
+    }
+
+    @MainActor
+    private func populatePreviewData() {
+        let anime = Self.sampleEntries(kind: .anime, prefix: "Anime", baseID: 1)
+        let shows = Self.sampleEntries(kind: .tvShow, prefix: "Show", baseID: 101)
+        trending = Array(anime.prefix(6))
+        trendingShows = Array(shows.prefix(6))
+        animeRecommendations = Array(anime.dropFirst(2))
+        showRecommendations = Array(shows.dropFirst(1))
+        searchResults = Array(anime.prefix(5))
+        searchQuery = "Fullmetal"
+        searchScope = .anime
+        errorMessage = nil
+        showErrorMessage = nil
+        searchErrorMessage = nil
+        animeRecommendationsErrorMessage = nil
+        showRecommendationsErrorMessage = nil
+        isLoadingInitial = false
+        isLoadingRecommendations = false
+        isSearching = false
+    }
+
+    private static func sampleEntries(kind: MediaKind, prefix: String, baseID: Int) -> [Anime] {
+        (0..<10).map { offset in
+            let providerID = baseID + offset
+            return Anime(
+                id: providerID,
+                title: "\(prefix) \(offset + 1)",
+                synopsis: "Sample synopsis for \(prefix.lowercased()) \(offset + 1).",
+                imageURL: nil,
+                score: 8.0 + Double(offset) * 0.2,
+                genres: [
+                    AnimeGenre(id: providerID, name: "Action"),
+                    AnimeGenre(id: providerID + 10, name: "Adventure")
+                ],
+                episodeCount: 12 + offset,
+                kind: kind,
+                providerID: providerID
+            )
+        }
+    }
+}
+#endif

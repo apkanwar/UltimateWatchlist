@@ -2,7 +2,7 @@ import SwiftUI
 import SwiftData
 
 @main
-struct UltimateWatchlistApp: App {
+struct UltimateLibraryApp: App {
     @State private var container: ModelContainer = {
         do {
             return try ModelContainer(
