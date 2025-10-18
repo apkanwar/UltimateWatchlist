@@ -141,6 +141,42 @@ public final class LocalMediaManager {
     
     private static var folderAccessAssociationKey: UInt8 = 0
     
+#if os(iOS) || os(tvOS)
+    private static func findPresentingViewController() -> UIViewController? {
+        let scenes = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .filter { $0.activationState == .foregroundActive }
+        
+        for scene in scenes {
+            if let root = scene.windows.first(where: { $0.isKeyWindow })?.rootViewController {
+                return topViewController(from: root)
+            }
+        }
+        
+        if let window = UIApplication.shared.delegate?.window??,
+           let root = window.rootViewController {
+            return topViewController(from: root)
+        }
+        
+        return nil
+    }
+
+    private static func topViewController(from controller: UIViewController) -> UIViewController {
+        if let presented = controller.presentedViewController {
+            return topViewController(from: presented)
+        }
+        if let navigation = controller as? UINavigationController,
+           let visible = navigation.visibleViewController {
+            return topViewController(from: visible)
+        }
+        if let tab = controller as? UITabBarController,
+           let selected = tab.selectedViewController {
+            return topViewController(from: selected)
+        }
+        return controller
+    }
+#endif
+    
     // MARK: Link Folder
     
     /// Link local folder using platform-specific UI and return bookmark data and display path.
@@ -182,7 +218,7 @@ public final class LocalMediaManager {
             picker.delegate = delegateHolder
             picker.modalPresentationStyle = .formSheet
             
-            guard let rootVC = UIApplication.shared.windows.first(where: { $0.isKeyWindow })?.rootViewController else {
+            guard let presenter = findPresentingViewController() else {
                 continuation.resume(throwing: LocalMediaError.folderNotLinked)
                 return
             }
@@ -190,7 +226,7 @@ public final class LocalMediaManager {
             // Keep delegateHolder alive while presented
             objc_setAssociatedObject(picker, "LocalMediaManagerDelegate", delegateHolder, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
             
-            rootVC.present(picker, animated: true, completion: nil)
+            presenter.present(picker, animated: true, completion: nil)
         }
         #elseif canImport(AppKit)
         // macOS NSOpenPanel
@@ -453,4 +489,3 @@ public extension LocalMediaManager {
         return (playable, queue[index])
     }
 }
-
