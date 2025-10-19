@@ -22,6 +22,12 @@ struct DiscoverView: View {
     @State private var genreFilter: AnimeGenre?
     @State private var isAnimeRecommendationsExpanded = true
     @State private var isShowRecommendationsExpanded = true
+#if os(iOS)
+    @State private var iosSelectedCategory: DiscoverPageCategory = .anime
+    @State private var iosNavigationPath: [Anime] = []
+    @State private var iosSearchText: String = ""
+    @State private var iosSearchScope: DiscoverSearchScope = .anime
+#endif
 
     var selectedGenreFilter: AnimeGenre? { genreFilter }
 
@@ -44,6 +50,109 @@ struct DiscoverView: View {
     }
 
     var body: some View {
+#if os(iOS)
+        iosBody
+#else
+        macBody
+#endif
+    }
+
+#if os(iOS)
+    private var iosBody: some View {
+        NavigationStack(path: $iosNavigationPath) {
+            Group {
+                if iosSearchIsActive {
+                    iosSearchResultsView
+                } else {
+                    VStack(spacing: 16) {
+                        if let filter = genreFilter {
+                            genreFilterIndicator(filter: filter)
+                                .padding(.horizontal, 4)
+                        }
+
+                        Picker("Category", selection: $iosSelectedCategory) {
+                            ForEach(DiscoverPageCategory.allCases) { category in
+                                Text(category.title).tag(category)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+
+                        TabView(selection: $iosSelectedCategory) {
+                            iosRecommendationsPage(for: .anime)
+                                .tag(DiscoverPageCategory.anime)
+
+                            iosRecommendationsPage(for: .shows)
+                                .tag(DiscoverPageCategory.shows)
+                        }
+                        .tabViewStyle(.page(indexDisplayMode: .never))
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    }
+                    .padding(.top, 20)
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 12)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                }
+            }
+            .background(backgroundColor.ignoresSafeArea())
+            .navigationTitle("Discover")
+            .navigationDestination(for: Anime.self) { anime in
+                ScrollView {
+                    AnimeDetailCardView(anime: anime, onGenreTap: handleGenreTap, allowLocalMediaLinking: false)
+                        .padding(20)
+                }
+                .background(backgroundColor)
+                .navigationTitle(anime.title)
+            }
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        refreshRecommendationsIfNeeded(force: true)
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                    }
+                    .accessibilityLabel("Refresh recommendations")
+                }
+            }
+        }
+        .task {
+            refreshRecommendationsIfNeeded(force: true)
+        }
+        .onChange(of: libraryEntries) { _, _ in
+            refreshRecommendationsIfNeeded(force: true)
+        }
+        .searchable(
+            text: $iosSearchText,
+            placement: .navigationBarDrawer(displayMode: .always),
+            prompt: "Search anime or TV shows"
+        )
+        .searchScopes($iosSearchScope) {
+            ForEach(DiscoverSearchScope.allCases) { scope in
+                Text(scope.displayName).tag(scope)
+            }
+        }
+        .onChange(of: iosSearchText) { _, newValue in
+            let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            viewModel.searchQuery = trimmed
+            if trimmed.isEmpty {
+                viewModel.cancelSearch()
+            } else {
+                viewModel.searchDebounced()
+            }
+        }
+        .onChange(of: iosSearchScope) { _, newScope in
+            viewModel.searchScope = newScope
+            if iosSearchIsActive {
+                viewModel.searchDebounced()
+            }
+        }
+        .onSubmit(of: .search) {
+            if iosSearchIsActive {
+                viewModel.searchDebounced()
+            }
+        }
+    }
+#else
+    private var macBody: some View {
         NavigationStack {
             GeometryReader { geometry in
                 ZStack(alignment: .trailing) {
@@ -148,6 +257,7 @@ struct DiscoverView: View {
             refreshRecommendationsIfNeeded(force: true)
         }
     }
+#endif
 
     private func hideSearchPanel() { withAnimation(.easeInOut(duration: 0.2)) { isSearchPanelVisible = false } }
 
@@ -175,6 +285,159 @@ struct DiscoverView: View {
         viewModel.refreshRecommendations(using: modelContext)
         AppUserDefaults.setLastRecommendationsRefreshDate(now)
     }
+
+#if os(iOS)
+    private func iosRecommendationsPage(for category: DiscoverPageCategory) -> some View {
+        let allItems = category == .anime ? viewModel.animeRecommendations : viewModel.showRecommendations
+        let items = filteredMedia(allItems)
+        let isLoading = viewModel.isLoadingRecommendations && allItems.isEmpty
+        let errorMessage = category == .anime ? viewModel.animeRecommendationsErrorMessage : viewModel.showRecommendationsErrorMessage
+        let hasPersonalised = category == .anime ? !animeLibraryEntries.isEmpty : !showLibraryEntries.isEmpty
+        let nonPersonalisedMessage = category == .anime ?
+            "Showing top 10 highest rated anime. Add anime to your library for personalised picks." :
+            "Showing top 10 highest rated TV shows. Add shows to your library for personalised picks."
+        let emptyFallbackMessage = category == .anime ?
+            "No anime recommendations available right now. Try again later." :
+            "No TV show recommendations available right now. Try again later."
+        let scopeLabel = category == .anime ? "anime" : "TV shows"
+        let lastID = items.last?.id
+
+        return ScrollView {
+            LazyVStack(alignment: .leading, spacing: 0) {
+                if isLoading {
+                    HStack(spacing: 10) {
+                        ProgressView()
+                        Text("Loading \(scopeLabel) recommendations…")
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 220, alignment: .center)
+                    .padding(.vertical, 24)
+                } else if items.isEmpty {
+                    if genreFilter != nil, !allItems.isEmpty {
+                        Text("No titles match the selected genre.")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .padding(.vertical, 40)
+                            .frame(maxWidth: .infinity, alignment: .center)
+                    } else if let message = errorMessage {
+                        Text(message)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                            .padding(.vertical, 40)
+                            .frame(maxWidth: .infinity, alignment: .center)
+                    } else {
+                        Text(emptyFallbackMessage)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                            .padding(.vertical, 40)
+                            .frame(maxWidth: .infinity, alignment: .center)
+                    }
+                } else {
+                    if !hasPersonalised {
+                        Text(nonPersonalisedMessage)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 4)
+                            .padding(.bottom, 12)
+                    }
+
+                    ForEach(items) { anime in
+                        VStack(spacing: 0) {
+                            AnimeRowView(anime: anime)
+                                .padding(.horizontal, 4)
+                                .contentShape(Rectangle())
+                                .onTapGesture {
+                                    iosNavigationPath.append(anime)
+                                }
+
+                            if anime.id != lastID {
+                                Divider()
+                                    .padding(.leading, 92)
+                                    .padding(.vertical, 6)
+                            }
+                        }
+                        .padding(.vertical, 4)
+                    }
+                    .animation(.easeInOut(duration: 0.18), value: items.count)
+                }
+            }
+            .padding(.top, 4)
+            .padding(.bottom, 24)
+        }
+        .background(backgroundColor)
+        .refreshable {
+            refreshRecommendationsIfNeeded(force: true)
+        }
+    }
+
+    private var iosSearchIsActive: Bool {
+        !viewModel.searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private var iosSearchResultsView: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 0) {
+                if let filter = genreFilter {
+                    genreFilterIndicator(filter: filter)
+                        .padding(.horizontal, 4)
+                        .padding(.bottom, 12)
+                }
+
+                if viewModel.isSearching {
+                    HStack(spacing: 10) {
+                        ProgressView()
+                        Text("Searching…")
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 220, alignment: .center)
+                    .padding(.vertical, 24)
+                } else if let message = viewModel.searchErrorMessage, !message.isEmpty {
+                    Text(message)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 40)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                } else if viewModel.searchResults.isEmpty {
+                    let scopeLabel = viewModel.searchScope == .anime ? "anime" : "TV shows"
+                    Text("No \(scopeLabel) found for \"\(viewModel.searchQuery)\".")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 40)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                } else {
+                    let lastID = viewModel.searchResults.last?.id
+                    ForEach(viewModel.searchResults) { anime in
+                        VStack(spacing: 0) {
+                            AnimeRowView(anime: anime)
+                                .padding(.horizontal, 4)
+                                .contentShape(Rectangle())
+                                .onTapGesture {
+                                    iosNavigationPath.append(anime)
+                                }
+
+                            if anime.id != lastID {
+                                Divider()
+                                    .padding(.leading, 92)
+                                    .padding(.vertical, 6)
+                            }
+                        }
+                        .padding(.vertical, 4)
+                    }
+                }
+            }
+            .padding(.top, 12)
+            .padding(.horizontal, 16)
+            .padding(.bottom, 32)
+        }
+        .background(backgroundColor.ignoresSafeArea())
+    }
+#endif
 
     private func mainContent(width: CGFloat) -> some View {
         Group {
@@ -396,6 +659,22 @@ struct DiscoverView: View {
         #endif
     }
 }
+
+#if os(iOS)
+private enum DiscoverPageCategory: Int, CaseIterable, Identifiable {
+    case anime
+    case shows
+
+    var id: Int { rawValue }
+
+    var title: String {
+        switch self {
+        case .anime: return "Anime"
+        case .shows: return "TV Shows"
+        }
+    }
+}
+#endif
 
 private struct DiscoverSearchPanel: View {
     @ObservedObject var viewModel: DiscoverViewModel

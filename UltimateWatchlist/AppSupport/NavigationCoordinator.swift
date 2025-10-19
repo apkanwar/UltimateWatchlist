@@ -4,6 +4,9 @@ import Foundation
 enum AppTab: Hashable {
     case discover
     case library
+#if os(iOS)
+    case settings
+#endif
 }
 
 final class AppNavigation: ObservableObject {

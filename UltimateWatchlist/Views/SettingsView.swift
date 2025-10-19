@@ -4,9 +4,23 @@ import SwiftData
 struct SettingsView: View {
     @Environment(\.modelContext) private var modelContext
     @Query private var entries: [LibraryEntryModel]
+    @AppStorage(AppAppearance.storageKey) private var storedAppearance: String = AppAppearance.system.rawValue
 
     var body: some View {
         List {
+            Section("Appearance") {
+                Picker("Theme", selection: appearanceBinding) {
+                    ForEach(AppAppearance.allCases) { appearance in
+                        Text(appearance.title).tag(appearance)
+                    }
+                }
+                .pickerStyle(.segmented)
+
+                Text("Choose whether the app follows the system appearance or stays in light or dark mode.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+
             Section("Recommendations") {
                 Button {
                     AppUserDefaults.clearRecommendationsThrottle()
@@ -44,6 +58,13 @@ struct SettingsView: View {
             }
         }
         .navigationTitle("Settings")
+    }
+
+    private var appearanceBinding: Binding<AppAppearance> {
+        Binding(
+            get: { AppAppearance(rawValue: storedAppearance) ?? .system },
+            set: { storedAppearance = $0.rawValue }
+        )
     }
 }
 

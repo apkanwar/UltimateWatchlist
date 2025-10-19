@@ -10,8 +10,13 @@ import SwiftData
 
 struct ContentView: View {
     @StateObject private var discoverViewModel = DiscoverViewModel()
+    @AppStorage(AppAppearance.storageKey) private var storedAppearance: String = AppAppearance.system.rawValue
     @StateObject private var navigation = AppNavigation()
     @StateObject private var playbackCoordinator = PlaybackCoordinator()
+
+    private var resolvedAppearance: AppAppearance {
+        AppAppearance(rawValue: storedAppearance) ?? .system
+    }
 
     var body: some View {
         TabView(selection: $navigation.selectedTab) {
@@ -25,6 +30,15 @@ struct ContentView: View {
                     Label("Library", systemImage: "books.vertical")
                 }
                 .tag(AppTab.library)
+#if os(iOS)
+            NavigationStack {
+                SettingsView()
+            }
+            .tabItem {
+                Label("Settings", systemImage: "gearshape")
+            }
+            .tag(AppTab.settings)
+#endif
         }
         .environmentObject(navigation)
         .environmentObject(playbackCoordinator)
@@ -32,6 +46,7 @@ struct ContentView: View {
             LocalMediaPlaybackRoot(request: request)
                 .environmentObject(playbackCoordinator)
         }
+        .preferredColorScheme(resolvedAppearance.colorScheme)
     }
 }
 
