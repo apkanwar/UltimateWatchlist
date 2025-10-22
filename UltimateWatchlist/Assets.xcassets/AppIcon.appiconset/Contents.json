@@ -1,6 +1,7 @@
 {
   "images" : [
     {
+      "filename" : "1024_Light.png",
       "idiom" : "universal",
       "platform" : "ios",
       "size" : "1024x1024"
@@ -12,6 +13,7 @@
           "value" : "dark"
         }
       ],
+      "filename" : "1024_Dark.png",
       "idiom" : "universal",
       "platform" : "ios",
       "size" : "1024x1024"
@@ -63,16 +65,19 @@
       "size" : "256x256"
     },
     {
+      "filename" : "512_Light 1.png",
       "idiom" : "mac",
       "scale" : "2x",
       "size" : "256x256"
     },
     {
+      "filename" : "512_Light.png",
       "idiom" : "mac",
       "scale" : "1x",
       "size" : "512x512"
     },
     {
+      "filename" : "1024_Light 1.png",
       "idiom" : "mac",
       "scale" : "2x",
       "size" : "512x512"
