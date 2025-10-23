@@ -68,7 +68,7 @@ final class AnimeService {
             URLQueryItem(name: "nsfw", value: "false")
         ]
         let url = try makeURL(path: "anime/ranking", queryItems: queryItems)
-        let response: MALListResponse = try await performRequest(url: url)
+        let response: MALListResponse = try await performRequest(url: url, cacheTTL: 1_800)
         return response.data.map { Anime($0.node) }
     }
 
@@ -82,7 +82,7 @@ final class AnimeService {
             URLQueryItem(name: "nsfw", value: "false")
         ]
         let url = try makeURL(path: "anime/ranking", queryItems: queryItems)
-        let response: MALListResponse = try await performRequest(url: url)
+        let response: MALListResponse = try await performRequest(url: url, cacheTTL: 900)
         let preferredGenreIDs = Set(genres.map(\.id))
 
         let filteredNodes = response.data
@@ -107,7 +107,7 @@ final class AnimeService {
             URLQueryItem(name: "nsfw", value: "false")
         ]
         let url = try makeURL(path: "anime", queryItems: queryItems)
-        let response: MALListResponse = try await performRequest(url: url)
+        let response: MALListResponse = try await performRequest(url: url, cacheTTL: 600)
         return response.data.map { Anime($0.node) }
     }
 
@@ -119,9 +119,17 @@ final class AnimeService {
         return url
     }
 
-    private func performRequest<T: Decodable>(url: URL) async throws -> T {
+    private func performRequest<T: Decodable>(url: URL, cacheTTL: TimeInterval? = nil) async throws -> T {
         guard !clientID.isEmpty else {
             throw AnimeServiceError.missingClientID
+        }
+
+        if let cachedData = await APICache.shared.data(for: url) {
+            do {
+                return try JSONDecoder().decode(T.self, from: cachedData)
+            } catch {
+                await APICache.shared.removeData(for: url)
+            }
         }
 
         var lastError: AnimeServiceError?
@@ -142,7 +150,9 @@ final class AnimeService {
                 switch httpResponse.statusCode {
                 case 200..<300:
                     do {
-                        return try JSONDecoder().decode(T.self, from: data)
+                        let decoded = try JSONDecoder().decode(T.self, from: data)
+                        await APICache.shared.store(data, for: url, ttl: cacheTTL)
+                        return decoded
                     } catch {
                         throw AnimeServiceError.decodingFailed
                     }

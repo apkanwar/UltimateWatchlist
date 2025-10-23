@@ -149,7 +149,8 @@ final class OMDbService {
             queryItems: [
                 URLQueryItem(name: "s", value: trimmed),
                 URLQueryItem(name: "type", value: "movie")
-            ]
+            ],
+            cacheTTL: 600
         )
 
         guard response.isSuccess else {
@@ -187,7 +188,8 @@ final class OMDbService {
             queryItems: [
                 URLQueryItem(name: "i", value: imdbID),
                 URLQueryItem(name: "plot", value: "full")
-            ]
+            ],
+            cacheTTL: 86_400
         )
 
         guard response.isSuccess else {
@@ -200,7 +202,7 @@ final class OMDbService {
         return OMDbMapper.makeAnime(from: response)
     }
 
-    private func performRequest<T: Decodable>(queryItems: [URLQueryItem]) async throws -> T {
+    private func performRequest<T: Decodable>(queryItems: [URLQueryItem], cacheTTL: TimeInterval? = nil) async throws -> T {
         guard !apiKey.isEmpty else { throw OMDbServiceError.missingAPIKey }
 
         var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false)
@@ -212,6 +214,14 @@ final class OMDbService {
         components?.queryItems = items
 
         guard let url = components?.url else { throw OMDbServiceError.invalidURL }
+
+        if let cachedData = await APICache.shared.data(for: url) {
+            do {
+                return try JSONDecoder().decode(T.self, from: cachedData)
+            } catch {
+                await APICache.shared.removeData(for: url)
+            }
+        }
 
         var request = URLRequest(url: url)
         request.timeoutInterval = 30
@@ -228,7 +238,9 @@ final class OMDbService {
             }
 
             do {
-                return try JSONDecoder().decode(T.self, from: data)
+                let decoded = try JSONDecoder().decode(T.self, from: data)
+                await APICache.shared.store(data, for: url, ttl: cacheTTL)
+                return decoded
             } catch {
                 throw OMDbServiceError.decodingFailed
             }

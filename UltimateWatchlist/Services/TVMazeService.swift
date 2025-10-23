@@ -66,7 +66,7 @@ final class TVMazeService {
             URLQueryItem(name: "limit", value: "\(limit)")
         ]
         let url = try makeURL(path: "search/shows", queryItems: queryItems)
-        let results: [TVMazeSearchResponse] = try await performRequest(url: url)
+        let results: [TVMazeSearchResponse] = try await performRequest(url: url, cacheTTL: 600)
         var seen = Set<Int>()
         var ordered: [TVMazeShowDTO] = []
         for result in results {
@@ -98,7 +98,7 @@ final class TVMazeService {
     private func fetchShowsPage(page: Int) async throws -> [TVMazeShowDTO] {
         guard !apiKey.isEmpty else { throw TVMazeServiceError.missingAPIKey }
         let url = try makeURL(path: "shows", queryItems: [URLQueryItem(name: "page", value: "\(page)")])
-        return try await performRequest(url: url)
+        return try await performRequest(url: url, cacheTTL: 1_800)
     }
 
     private func makeURL(path: String, queryItems: [URLQueryItem] = []) throws -> URL {
@@ -112,7 +112,15 @@ final class TVMazeService {
         return url
     }
 
-    private func performRequest<T: Decodable>(url: URL) async throws -> T {
+    private func performRequest<T: Decodable>(url: URL, cacheTTL: TimeInterval? = nil) async throws -> T {
+        if let cachedData = await APICache.shared.data(for: url) {
+            do {
+                return try JSONDecoder().decode(T.self, from: cachedData)
+            } catch {
+                await APICache.shared.removeData(for: url)
+            }
+        }
+
         var lastError: TVMazeServiceError?
 
         for attempt in 0..<maxRetries {
@@ -135,7 +143,9 @@ final class TVMazeService {
                 switch httpResponse.statusCode {
                 case 200..<300:
                     do {
-                        return try JSONDecoder().decode(T.self, from: data)
+                        let decoded = try JSONDecoder().decode(T.self, from: data)
+                        await APICache.shared.store(data, for: url, ttl: cacheTTL)
+                        return decoded
                     } catch {
                         throw TVMazeServiceError.decodingFailed
                     }

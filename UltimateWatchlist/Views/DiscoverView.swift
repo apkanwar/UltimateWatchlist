@@ -431,13 +431,7 @@ struct DiscoverView: View {
                         .padding(.vertical, 40)
                         .frame(maxWidth: .infinity, alignment: .center)
                 } else if viewModel.searchResults.isEmpty {
-                    let scopeLabel: String
-                    switch viewModel.searchScope {
-                    case .anime: scopeLabel = "anime"
-                    case .tvShows: scopeLabel = "TV shows"
-                    case .movies: scopeLabel = "movies"
-                    }
-                    Text("No \(scopeLabel) found for \"\(viewModel.searchQuery)\".")
+                    Text("No \(discoverScopeLabel(viewModel.searchScope)) found for \"\(viewModel.searchQuery)\".")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
@@ -802,7 +796,7 @@ private struct DiscoverSearchPanel: View {
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
             } else if viewModel.searchResults.isEmpty {
-                Text(viewModel.searchQuery.isEmpty ? "Type a title to start searching." : "No \(scopeLabel(for: viewModel.searchScope)) found for \"\(viewModel.searchQuery)\".")
+                Text(viewModel.searchQuery.isEmpty ? "Type a title to start searching." : "No \(discoverScopeLabel(viewModel.searchScope)) found for \"\(viewModel.searchQuery)\".")
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
             } else {
@@ -897,6 +891,14 @@ private struct SettingsPanel<Content: View>: View {
         #else
         return Color.white
         #endif
+    }
+}
+
+private func discoverScopeLabel(_ scope: DiscoverSearchScope) -> String {
+    switch scope {
+    case .anime: return "anime"
+    case .tvShows: return "TV shows"
+    case .movies: return "movies"
     }
 }
 

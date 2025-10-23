@@ -375,11 +375,35 @@ public final class LocalMediaManager {
         }
         let playerVC = AVPlayerViewController()
         playerVC.player = player
-        
-        guard let rootVC = UIApplication.shared.windows.first(where: { $0.isKeyWindow })?.rootViewController else {
-            return
-        }
-        
+
+        // Find a root view controller from the active foreground scene
+        let rootVC: UIViewController? = {
+            // Prefer the key window from the active foreground scene
+            let scenes = UIApplication.shared.connectedScenes
+                .compactMap { $0 as? UIWindowScene }
+                .filter { $0.activationState == .foregroundActive }
+
+            for scene in scenes {
+                if let vc = scene.windows.first(where: { $0.isKeyWindow })?.rootViewController {
+                    return vc
+                }
+                // Fallback: any window's rootViewController in this scene
+                if let vc = scene.windows.first?.rootViewController {
+                    return vc
+                }
+            }
+
+            // Ultimate fallback (older APIs): try application's delegate window
+            if let windowProvider = UIApplication.shared.delegate?.window,
+               let window = windowProvider,
+               let vc = window.rootViewController {
+                return vc
+            }
+            return nil
+        }()
+
+        guard let rootVC else { return }
+
         DispatchQueue.main.async {
             rootVC.present(playerVC, animated: true) {
                 player.play()

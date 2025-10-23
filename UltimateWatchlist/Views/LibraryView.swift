@@ -520,10 +520,21 @@ private struct LibrarySectionView: View {
     let viewMode: LibraryViewMode
     let onGenreTap: (AnimeGenre) -> Void
 
+    @Environment(\.horizontalSizeClass) private var hSizeClass
+
     private var cardWidth: CGFloat {
 #if canImport(UIKit)
-        let screenWidth = UIScreen.main.bounds.width
-        return max(220, min(screenWidth * 0.36, 320))
+        // Heuristic based on size class; avoids deprecated UIScreen.main
+        let baseWidth: CGFloat
+        switch hSizeClass {
+        case .compact:
+            baseWidth = 260
+        case .regular:
+            baseWidth = 320
+        default:
+            baseWidth = 280
+        }
+        return baseWidth
 #else
         return 280
 #endif
