@@ -22,6 +22,7 @@ struct DiscoverView: View {
     @State private var genreFilter: AnimeGenre?
     @State private var isAnimeRecommendationsExpanded = true
     @State private var isShowRecommendationsExpanded = true
+    @State private var isMovieRecommendationsExpanded = true
 #if os(iOS)
     @State private var iosSelectedCategory: DiscoverPageCategory = .anime
     @State private var iosNavigationPath: [Anime] = []
@@ -40,6 +41,10 @@ struct DiscoverView: View {
 
     private var showLibraryEntries: [LibraryEntryModel] {
         libraryEntries.filter { $0.anime.kind == .tvShow }
+    }
+
+    private var movieLibraryEntries: [LibraryEntryModel] {
+        libraryEntries.filter { $0.anime.kind == .movie }
     }
 
     init(viewModel: DiscoverViewModel, showSearchPanel: Bool = false, showSettingsPanel: Bool = false) {
@@ -83,6 +88,9 @@ struct DiscoverView: View {
 
                             iosRecommendationsPage(for: .shows)
                                 .tag(DiscoverPageCategory.shows)
+
+                            iosRecommendationsPage(for: .movies)
+                                .tag(DiscoverPageCategory.movies)
                         }
                         .tabViewStyle(.page(indexDisplayMode: .never))
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -123,7 +131,7 @@ struct DiscoverView: View {
         .searchable(
             text: $iosSearchText,
             placement: .navigationBarDrawer(displayMode: .always),
-            prompt: "Search anime or TV shows"
+            prompt: "Search anime, TV shows, or movies"
         )
         .searchScopes($iosSearchScope) {
             ForEach(DiscoverSearchScope.allCases) { scope in
@@ -288,18 +296,39 @@ struct DiscoverView: View {
 
 #if os(iOS)
     private func iosRecommendationsPage(for category: DiscoverPageCategory) -> some View {
-        let allItems = category == .anime ? viewModel.animeRecommendations : viewModel.showRecommendations
+        let allItems: [Anime]
+        let errorMessage: String?
+        let hasPersonalised: Bool
+        let nonPersonalisedMessage: String
+        let emptyFallbackMessage: String
+        let scopeLabel: String
+
+        switch category {
+        case .anime:
+            allItems = viewModel.animeRecommendations
+            errorMessage = viewModel.animeRecommendationsErrorMessage
+            hasPersonalised = !animeLibraryEntries.isEmpty
+            nonPersonalisedMessage = "Showing top 10 highest rated anime. Add anime to your library for personalised picks."
+            emptyFallbackMessage = "No anime recommendations available right now. Try again later."
+            scopeLabel = "anime"
+        case .shows:
+            allItems = viewModel.showRecommendations
+            errorMessage = viewModel.showRecommendationsErrorMessage
+            hasPersonalised = !showLibraryEntries.isEmpty
+            nonPersonalisedMessage = "Showing top 10 highest rated TV shows. Add shows to your library for personalised picks."
+            emptyFallbackMessage = "No TV show recommendations available right now. Try again later."
+            scopeLabel = "TV shows"
+        case .movies:
+            allItems = viewModel.movieRecommendations
+            errorMessage = viewModel.movieRecommendationsErrorMessage
+            hasPersonalised = !movieLibraryEntries.isEmpty
+            nonPersonalisedMessage = "Showing top 10 highest rated movies. Add movies to your library for personalised picks."
+            emptyFallbackMessage = "No movie recommendations available right now. Try again later."
+            scopeLabel = "movies"
+        }
+
         let items = filteredMedia(allItems)
         let isLoading = viewModel.isLoadingRecommendations && allItems.isEmpty
-        let errorMessage = category == .anime ? viewModel.animeRecommendationsErrorMessage : viewModel.showRecommendationsErrorMessage
-        let hasPersonalised = category == .anime ? !animeLibraryEntries.isEmpty : !showLibraryEntries.isEmpty
-        let nonPersonalisedMessage = category == .anime ?
-            "Showing top 10 highest rated anime. Add anime to your library for personalised picks." :
-            "Showing top 10 highest rated TV shows. Add shows to your library for personalised picks."
-        let emptyFallbackMessage = category == .anime ?
-            "No anime recommendations available right now. Try again later." :
-            "No TV show recommendations available right now. Try again later."
-        let scopeLabel = category == .anime ? "anime" : "TV shows"
         let lastID = items.last?.id
 
         return ScrollView {
@@ -402,7 +431,12 @@ struct DiscoverView: View {
                         .padding(.vertical, 40)
                         .frame(maxWidth: .infinity, alignment: .center)
                 } else if viewModel.searchResults.isEmpty {
-                    let scopeLabel = viewModel.searchScope == .anime ? "anime" : "TV shows"
+                    let scopeLabel: String
+                    switch viewModel.searchScope {
+                    case .anime: scopeLabel = "anime"
+                    case .tvShows: scopeLabel = "TV shows"
+                    case .movies: scopeLabel = "movies"
+                    }
                     Text("No \(scopeLabel) found for \"\(viewModel.searchQuery)\".")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
@@ -441,7 +475,7 @@ struct DiscoverView: View {
 
     private func mainContent(width: CGFloat) -> some View {
         Group {
-            if viewModel.isLoadingRecommendations && viewModel.animeRecommendations.isEmpty && viewModel.showRecommendations.isEmpty {
+            if viewModel.isLoadingRecommendations && viewModel.animeRecommendations.isEmpty && viewModel.showRecommendations.isEmpty && viewModel.movieRecommendations.isEmpty {
                 ProgressView("Loading recommendations…")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
@@ -450,6 +484,7 @@ struct DiscoverView: View {
                         if let filter = genreFilter { genreFilterIndicator(filter: filter) }
                         animeRecommendationsSection(width: width)
                         showRecommendationsSection(width: width)
+                        movieRecommendationsSection(width: width)
                     }
                     .padding(.horizontal, 20)
                     .padding(.vertical, 28)
@@ -536,6 +571,49 @@ struct DiscoverView: View {
                 } else {
                     if !hasPersonalisedShows {
                         Text("Showing top 10 highest rated TV shows. Add shows to your library for personalised picks.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                    horizontalCarousel(for: items, availableWidth: width)
+                }
+            }
+        }
+    }
+
+    private func movieRecommendationsSection(width: CGFloat) -> some View {
+        let items = filteredMedia(viewModel.movieRecommendations)
+        let hasPersonalisedMovies = !movieLibraryEntries.isEmpty
+
+        return VStack(alignment: .leading, spacing: 12) {
+            sectionHeader(
+                title: "Movie Recommendations",
+                isExpanded: $isMovieRecommendationsExpanded,
+                currentPage: 0,
+                totalPages: 1,
+                onPrevious: {},
+                onNext: {}
+            )
+
+            if isMovieRecommendationsExpanded {
+                if viewModel.isLoadingRecommendations && viewModel.movieRecommendations.isEmpty {
+                    HStack(spacing: 8) {
+                        ProgressView()
+                        Text("Loading movie recommendations…")
+                            .foregroundStyle(.secondary)
+                    }
+                } else if items.isEmpty {
+                    if genreFilter != nil, !viewModel.movieRecommendations.isEmpty {
+                        Text("No titles match the selected genre.")
+                            .foregroundStyle(.secondary)
+                    } else if let message = viewModel.movieRecommendationsErrorMessage {
+                        Text(message).foregroundStyle(.secondary)
+                    } else {
+                        Text("No movie recommendations available right now. Try again later.")
+                            .foregroundStyle(.secondary)
+                    }
+                } else {
+                    if !hasPersonalisedMovies {
+                        Text("Showing top 10 highest rated movies. Add movies to your library for personalised picks.")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                     }
@@ -664,6 +742,7 @@ struct DiscoverView: View {
 private enum DiscoverPageCategory: Int, CaseIterable, Identifiable {
     case anime
     case shows
+    case movies
 
     var id: Int { rawValue }
 
@@ -671,6 +750,7 @@ private enum DiscoverPageCategory: Int, CaseIterable, Identifiable {
         switch self {
         case .anime: return "Anime"
         case .shows: return "TV Shows"
+        case .movies: return "Movies"
         }
     }
 }
@@ -714,35 +794,32 @@ private struct DiscoverSearchPanel: View {
 
             Divider()
 
-            Group {
-                if viewModel.isSearching {
-                    HStack(spacing: 8) { ProgressView(); Text("Searching…").foregroundStyle(.secondary) }
-                        .frame(maxWidth: .infinity, alignment: .center)
-                } else if let message = viewModel.searchErrorMessage {
-                    Text(message).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
-                } else if viewModel.searchResults.isEmpty {
-                    let scopeLabel = viewModel.searchScope == .anime ? "anime" : "TV shows"
-                    Text(viewModel.searchQuery.isEmpty ? "Type a title to start searching." : "No \(scopeLabel) found for \"\(viewModel.searchQuery)\".")
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                } else {
-                    ScrollView {
-                        LazyVStack(alignment: .leading, spacing: 16) {
-                            ForEach(viewModel.searchResults) { anime in
-                                AnimeDetailCardView(
-                                    anime: anime,
-                                    onGenreTap: { genre in
-                                        onGenreTap(genre)
-                                        viewModel.searchQuery = ""
-                                        viewModel.cancelSearch()
-                                    },
-                                    allowLocalMediaLinking: false,
-                                    synopsisLineLimit: 5,
-                                    
-                                )
-                            }
+            if viewModel.isSearching {
+                HStack(spacing: 8) { ProgressView(); Text("Searching…").foregroundStyle(.secondary) }
+                    .frame(maxWidth: .infinity, alignment: .center)
+            } else if let message = viewModel.searchErrorMessage {
+                Text(message)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else if viewModel.searchResults.isEmpty {
+                Text(viewModel.searchQuery.isEmpty ? "Type a title to start searching." : "No \(scopeLabel(for: viewModel.searchScope)) found for \"\(viewModel.searchQuery)\".")
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 16) {
+                        ForEach(viewModel.searchResults) { anime in
+                            AnimeDetailCardView(
+                                anime: anime,
+                                onGenreTap: { genre in
+                                    onGenreTap(genre)
+                                    viewModel.searchQuery = ""
+                                    viewModel.cancelSearch()
+                                },
+                                allowLocalMediaLinking: false,
+                                synopsisLineLimit: 5
+                            )
                         }
-                        
                     }
                 }
             }
@@ -765,6 +842,14 @@ private struct DiscoverSearchPanel: View {
         withAnimation(.easeInOut(duration: 0.2)) { isPresented = false }
         viewModel.searchQuery = ""
         viewModel.cancelSearch()
+    }
+
+    private func scopeLabel(for scope: DiscoverSearchScope) -> String {
+        switch scope {
+        case .anime: return "anime"
+        case .tvShows: return "TV shows"
+        case .movies: return "movies"
+        }
     }
 
     private var panelBackgroundColor: Color {

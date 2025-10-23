@@ -151,8 +151,9 @@ public final class LocalMediaManager {
             self.url = url
         }
         deinit {
+            let capturedURL = url
             Task { @MainActor in
-                LocalMediaManager.stopAccessIfNeeded(url: url)
+                LocalMediaManager.stopAccessIfNeeded(url: capturedURL)
             }
         }
     }

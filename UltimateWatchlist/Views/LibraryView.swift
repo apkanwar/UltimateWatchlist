@@ -27,12 +27,14 @@ private enum LibraryViewMode: String, CaseIterable, Identifiable {
 private enum LibraryCategory: Int, CaseIterable, Identifiable {
     case anime
     case shows
+    case movies
 
     var id: Int { rawValue }
     var title: String {
         switch self {
         case .anime: return "Anime"
         case .shows: return "TV Shows"
+        case .movies: return "Movies"
         }
     }
 }
@@ -65,7 +67,7 @@ struct LibraryView: View {
                     ContentUnavailableView(
                         "Your library is empty",
                         systemImage: "tray",
-                        description: Text("Use the Discover tab to search for anime or TV shows and add them to your library.")
+                        description: Text("Use the Discover tab to search for anime, TV shows, or movies and add them to your library.")
                     )
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
@@ -105,7 +107,7 @@ struct LibraryView: View {
                 ContentUnavailableView(
                     "Your library is empty",
                     systemImage: "tray",
-                    description: Text("Use the Discover tab to search for anime or TV shows and add them to your library.")
+                    description: Text("Use the Discover tab to search for anime, TV shows, or movies and add them to your library.")
                 )
                 .navigationTitle("Library")
             } else {
@@ -169,8 +171,10 @@ private struct LibraryContent: View {
         let searchedEntries = searchEntries(sortedEntries, query: searchText)
         let animeEntries = searchedEntries.filter { $0.anime.kind == .anime }
         let tvEntries = searchedEntries.filter { $0.anime.kind == .tvShow && !isAnimeGenre($0.anime) }
+        let movieEntries = searchedEntries.filter { $0.anime.kind == .movie }
         let animeTitle = "Anime"
         let tvTitle = "TV Shows"
+        let movieTitle = "Movies"
 
         return ScrollView {
             VStack(spacing: 20) {
@@ -179,11 +183,11 @@ private struct LibraryContent: View {
                         .padding(.horizontal)
                 }
 
-                if animeEntries.isEmpty && tvEntries.isEmpty {
+                if animeEntries.isEmpty && tvEntries.isEmpty && movieEntries.isEmpty {
                     ContentUnavailableView(
                         "No titles match your filters",
                         systemImage: "tray",
-                        description: Text("Adjust your filters or search terms to see your saved shows.")
+                        description: Text("Adjust your filters or search terms to see your saved titles.")
                     )
                     .padding(.horizontal)
                     .frame(maxWidth: .infinity, minHeight: 240)
@@ -203,6 +207,16 @@ private struct LibraryContent: View {
                             LibrarySectionView(
                                 title: tvTitle,
                                 entries: tvEntries,
+                                genreFilter: genreFilter,
+                                viewMode: viewMode,
+                                onGenreTap: { genre in withAnimation { genreFilter = genre } }
+                            )
+                            .transition(.opacity)
+                        }
+                        if !movieEntries.isEmpty {
+                            LibrarySectionView(
+                                title: movieTitle,
+                                entries: movieEntries,
                                 genreFilter: genreFilter,
                                 viewMode: viewMode,
                                 onGenreTap: { genre in withAnimation { genreFilter = genre } }
@@ -348,8 +362,12 @@ private struct LibraryPagedContentiOS: View {
         processedEntries.filter { $0.anime.kind == .tvShow && !isAnimeGenre($0.anime) }
     }
 
+    private var movieEntries: [LibraryEntryModel] {
+        processedEntries.filter { $0.anime.kind == .movie }
+    }
+
     private var hasAnyEntries: Bool {
-        !animeEntries.isEmpty || !showEntries.isEmpty
+        !animeEntries.isEmpty || !showEntries.isEmpty || !movieEntries.isEmpty
     }
 
     var body: some View {
@@ -366,6 +384,9 @@ private struct LibraryPagedContentiOS: View {
 
                     libraryPage(for: showEntries, category: .shows)
                         .tag(LibraryCategory.shows)
+
+                    libraryPage(for: movieEntries, category: .movies)
+                        .tag(LibraryCategory.movies)
                 }
                 .tabViewStyle(.page(indexDisplayMode: .never))
                 .animation(.easeInOut(duration: 0.2), value: selectedCategory)
@@ -452,7 +473,12 @@ private struct LibraryPagedContentiOS: View {
                 description: Text("Adjust your filters or search terms to see your saved titles.")
             )
         } else {
-            let title = category == .anime ? "No anime saved yet" : "No shows saved yet"
+            let title: String
+            switch category {
+            case .anime: title = "No anime saved yet"
+            case .shows: title = "No shows saved yet"
+            case .movies: title = "No movies saved yet"
+            }
             return ContentUnavailableView(
                 title,
                 systemImage: "tray",

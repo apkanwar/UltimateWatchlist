@@ -20,9 +20,11 @@ enum PreviewData {
         let action = AnimeGenreModel(id: 1, name: "Action")
         let drama = AnimeGenreModel(id: 2, name: "Drama")
         let fantasy = AnimeGenreModel(id: 3, name: "Fantasy")
+        let sciFi = AnimeGenreModel(id: 4, name: "Sci-Fi")
         context.insert(action)
         context.insert(drama)
         context.insert(fantasy)
+        context.insert(sciFi)
 
         let anime = AnimeModel(
             id: 1001,
@@ -46,17 +48,31 @@ enum PreviewData {
             episodeCount: 24,
             genres: [drama, fantasy]
         )
+        let movie = AnimeModel(
+            id: 3001,
+            providerID: 3001,
+            kind: .movie,
+            title: "Nebula Rising",
+            synopsis: "An astronaut risks everything to reunite a fractured crew light-years from home.",
+            imageURLString: nil,
+            score: 8.9,
+            episodeCount: nil,
+            genres: [sciFi, drama]
+        )
 
         context.insert(anime)
         context.insert(show)
+        context.insert(movie)
 
         let first = LibraryEntryModel(id: anime.id, status: .currentlyWatching, anime: anime)
         let second = LibraryEntryModel(id: show.id, status: .planToWatch, anime: show)
+        let third = LibraryEntryModel(id: movie.id, status: .completed, anime: movie)
         context.insert(first)
         context.insert(second)
+        context.insert(third)
 
         try? context.save()
-        return [first, second]
+        return [first, second, third]
     }
 
     static func sampleEpisodes() -> [EpisodeFile] {

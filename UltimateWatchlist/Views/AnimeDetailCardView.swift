@@ -387,6 +387,7 @@ struct AnimeDetailCardView: View {
         switch anime.kind {
         case .anime: return "sparkles.tv"
         case .tvShow: return "tv.fill"
+        case .movie: return "film.fill"
         }
     }
 

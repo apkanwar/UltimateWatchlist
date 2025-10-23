@@ -4,6 +4,8 @@
 <dict>
 	<key>MALClientID</key>
 	<string>e4bba4381281cb84ab495579b955b7d4</string>
+	<key>OMDbAPIKey</key>
+	<string>6e825f44</string>
 	<key>TVMazeAPIKey</key>
 	<string>uin_H1z_5VBcGn_yTnd5CCtC2Yhu6Mfv</string>
 </dict>

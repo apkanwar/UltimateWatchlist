@@ -10,6 +10,7 @@ import Foundation
 enum MediaKind: String, Codable, CaseIterable, Identifiable {
     case anime
     case tvShow
+    case movie
 
     var id: String { rawValue }
 
@@ -17,6 +18,7 @@ enum MediaKind: String, Codable, CaseIterable, Identifiable {
         switch self {
         case .anime: return "Anime"
         case .tvShow: return "TV Show"
+        case .movie: return "Movie"
         }
     }
 
@@ -24,6 +26,7 @@ enum MediaKind: String, Codable, CaseIterable, Identifiable {
         switch self {
         case .anime: return 0
         case .tvShow: return 1_000_000_000
+        case .movie: return 2_000_000_000
         }
     }
 
@@ -37,7 +40,7 @@ enum MediaKind: String, Codable, CaseIterable, Identifiable {
     }
 }
 
-/// Core media model used throughout the app (anime or TV show).
+/// Core media model used throughout the app (anime, TV show, or movie).
 struct Anime: Identifiable, Hashable, Codable {
     let id: Int
     let providerID: Int
