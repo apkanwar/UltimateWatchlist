@@ -27,71 +27,76 @@ struct AnimeRowView: View {
     private var isInLibrary: Bool { entryModel != nil }
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            AnimePosterView(imageURL: anime.imageURL)
-                .frame(width: 80, height: 112)
-                .clipShape(RoundedRectangle(cornerRadius: 8))
-
-            VStack(alignment: .leading, spacing: 6) {
-                Label(anime.kind.displayName, systemImage: mediaTypeIconName)
-                    .font(.caption.weight(.semibold))
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(tagBackground)
-                    .foregroundStyle(tagForeground)
-                    .clipShape(Capsule())
-
-                Text(anime.title)
-                    .font(.headline)
-                    .foregroundStyle(.primary)
-                    .multilineTextAlignment(.leading)
-
-                if let score = anime.score {
-                    Label(String(format: "%.1f", score), systemImage: "star.fill")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .imageScale(.small)
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .top, spacing: 12) {
+                AnimePosterView(imageURL: anime.imageURL)
+                    .frame(width: 80, height: 112)
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                
+                VStack(alignment: .leading, spacing: 6) {
+                    Label(anime.kind.displayName, systemImage: mediaTypeIconName)
+                        .font(.caption.weight(.semibold))
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(tagBackground)
+                        .foregroundStyle(tagForeground)
+                        .clipShape(Capsule())
+                    
+                    Text(anime.title)
+                        .font(.headline)
+                        .foregroundStyle(.primary)
+                        .multilineTextAlignment(.leading)
+                    
+                    if let score = anime.score {
+                        Label(String(format: "%.1f", score), systemImage: "star.fill")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .imageScale(.small)
+                    }
                 }
-
-                Text(anime.synopsis)
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(3)
-
-                if !anime.genres.isEmpty {
-                    Text(anime.genres.map(\.name).joined(separator: ", "))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
+                
+                Spacer()
+                
+                if isInLibrary {
+                    Menu {
+                        Button(role: .destructive) {
+                            removeEntry()
+                        } label: {
+                            Label("Remove from Library", systemImage: "trash")
+                        }
+                    } label: {
+                        Label("Added", systemImage: "checkmark.circle.fill")
+                            .font(.footnote)
+                    }
+                } else {
+                    Button {
+                        addToLibrary()
+                    } label: {
+                        Label("Add", systemImage: "plus.circle.fill")
+                            .font(.footnote)
+                    }
+                    .buttonStyle(.borderedProminent)
                 }
             }
-
-            Spacer()
-
-            if isInLibrary {
-                Menu {
-                    Button(role: .destructive) {
-                        removeEntry()
-                    } label: {
-                        Label("Remove from Library", systemImage: "trash")
+            .padding(.vertical, 8)
+            
+            if !anime.genres.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    LazyHStack(spacing: 8) {
+                        ForEach(anime.genres, id: \.id) { genre in
+                            Text(genre.name)
+                                .font(.caption.weight(.semibold))
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 6)
+                                .background(tagBackground)
+                                .foregroundStyle(tagForeground)
+                                .clipShape(Capsule())
+                        }
                     }
-                } label: {
-                    Label("Added", systemImage: "checkmark.circle.fill")
-                        .font(.footnote)
-                        .padding(.top, 4)
+                    .padding(.vertical, 2)
                 }
-            } else {
-                Button {
-                    addToLibrary()
-                } label: {
-                    Label("Add", systemImage: "plus.circle.fill")
-                        .font(.footnote)
-                        .padding(.top, 4)
-                }
-                .buttonStyle(.borderedProminent)
             }
         }
-        .padding(.vertical, 8)
     }
 
     private func addToLibrary() {

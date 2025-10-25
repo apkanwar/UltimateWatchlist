@@ -629,7 +629,8 @@ struct DiscoverView: View {
                         anime: anime,
                         onGenreTap: handleGenreTap,
                         allowLocalMediaLinking: false,
-                        synopsisLineLimit: 4
+                        synopsisLineLimit: 4,
+                        enforceMacUniformLayout: true
                     )
                     .frame(width: cardWidth)
                 }
@@ -811,7 +812,8 @@ private struct DiscoverSearchPanel: View {
                                     viewModel.cancelSearch()
                                 },
                                 allowLocalMediaLinking: false,
-                                synopsisLineLimit: 5
+                                synopsisLineLimit: 4,
+                                enforceMacUniformLayout: true
                             )
                         }
                     }

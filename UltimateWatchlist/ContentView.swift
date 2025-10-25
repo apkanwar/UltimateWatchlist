@@ -13,12 +13,33 @@ struct ContentView: View {
     @AppStorage(AppAppearance.storageKey) private var storedAppearance: String = AppAppearance.system.rawValue
     @StateObject private var navigation = AppNavigation()
     @StateObject private var playbackCoordinator = PlaybackCoordinator()
+    @State private var showingSplash: Bool = true
 
     private var resolvedAppearance: AppAppearance {
         AppAppearance(rawValue: storedAppearance) ?? .system
     }
 
     var body: some View {
+        ZStack {
+            mainContent
+                .opacity(showingSplash ? 0 : 1)
+
+            if showingSplash {
+                SplashView()
+                    .transition(.opacity)
+            }
+        }
+        .onAppear {
+            // Simulate brief loading window; replace with real readiness checks if needed
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+                withAnimation(.easeInOut(duration: 0.35)) {
+                    showingSplash = false
+                }
+            }
+        }
+    }
+
+    private var mainContent: some View {
         TabView(selection: $navigation.selectedTab) {
             DiscoverView(viewModel: discoverViewModel)
                 .tabItem {

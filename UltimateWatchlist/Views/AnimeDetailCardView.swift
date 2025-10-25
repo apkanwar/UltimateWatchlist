@@ -9,6 +9,8 @@ import SwiftUI
 import SwiftData
 #if canImport(UIKit)
 import UIKit
+#elseif canImport(AppKit)
+import AppKit
 #endif
 
 struct AnimeDetailCardView: View {
@@ -18,6 +20,7 @@ struct AnimeDetailCardView: View {
     var allowLocalMediaLinking: Bool = false
     var synopsisLineLimit: Int?
     var cardHeight: CGFloat?
+    var enforceMacUniformLayout: Bool = false
 
     @Environment(\.modelContext) private var modelContext
     @EnvironmentObject private var navigation: AppNavigation
@@ -25,6 +28,8 @@ struct AnimeDetailCardView: View {
     @Query private var entry: [LibraryEntryModel]
 
     @State private var episodes: [EpisodeFile] = []
+    @State private var isSynopsisExpanded: Bool = true
+    @State private var isEpisodesExpanded: Bool = false
 
     init(
         anime: Anime,
@@ -32,7 +37,8 @@ struct AnimeDetailCardView: View {
         onGenreTap: ((AnimeGenre) -> Void)? = nil,
         allowLocalMediaLinking: Bool = false,
         synopsisLineLimit: Int? = nil,
-        cardHeight: CGFloat? = nil
+        cardHeight: CGFloat? = nil,
+        enforceMacUniformLayout: Bool = false
     ) {
         self.anime = anime
         self.showStatusBadge = showStatusBadge
@@ -40,6 +46,7 @@ struct AnimeDetailCardView: View {
         self.allowLocalMediaLinking = allowLocalMediaLinking
         self.synopsisLineLimit = synopsisLineLimit
         self.cardHeight = cardHeight
+        self.enforceMacUniformLayout = enforceMacUniformLayout
         let predicate = #Predicate<LibraryEntryModel> { $0.id == anime.id }
         _entry = Query(filter: predicate)
     }
@@ -169,7 +176,6 @@ struct AnimeDetailCardView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .top, spacing: 18) {
-                VStack(alignment: .leading, spacing: 8) {
                     AnimePosterView(imageURL: anime.imageURL, contentMode: .fill)
                         .frame(width: 130, height: 190)
                         .clipShape(RoundedRectangle(cornerRadius: cornerRadius * 0.6))
@@ -184,9 +190,6 @@ struct AnimeDetailCardView: View {
                                     .padding(8)
                             }
                         }
-                    libraryActionControls
-                }
-                
 
                 VStack(alignment: .leading, spacing: 10) {
                     Label(anime.kind.displayName, systemImage: mediaTypeIconName)
@@ -198,53 +201,51 @@ struct AnimeDetailCardView: View {
                         .clipShape(Capsule())
 
                     HStack(alignment: .top) {
-                        Text(anime.title)
-                            .font(.headline)
-                            .foregroundStyle(.primary)
-                            .multilineTextAlignment(.leading)
-                            .lineLimit(2)
-                            .truncationMode(.tail)
-                            .fixedSize(horizontal: false, vertical: true)
+                        titleText
                     }
 
                     infoRow
-                    genreTags
+                    libraryActionControls
+                }
+            }
+            
+            genreTags
 
-                    Text(anime.synopsis)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.leading)
-                        .lineLimit(synopsisLineLimit)
-
-                    if allowLocalMediaLinking, entryModel?.linkedFolderBookmarkData != nil {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Label("Episodes", systemImage: "list.bullet.rectangle")
-                                .font(.subheadline.weight(.semibold))
-                            if episodes.isEmpty {
-                                Text("No episodes found.")
-                                    .foregroundStyle(.secondary)
-                            } else {
-                                ForEach(episodes) { ep in
-                                    Button {
-                                        play(ep)
-                                    } label: {
-                                        HStack {
-                                            Text(ep.displayName)
-                                            Spacer()
-                                            if let n = ep.episodeNumber {
-                                                Text("Ep \(n)")
-                                                    .foregroundStyle(.secondary)
-                                            }
-                                            Image(systemName: "play.fill")
+            synopsisSection
+            
+            if allowLocalMediaLinking {
+                DisclosureGroup(isExpanded: $isEpisodesExpanded) {
+                    if entryModel?.linkedFolderBookmarkData == nil {
+                        Text("Link a folder to browse episodes.")
+                            .foregroundStyle(.secondary)
+                    } else {
+                        if episodes.isEmpty {
+                            Text("No episodes found.")
+                                .foregroundStyle(.secondary)
+                        } else {
+                            ForEach(episodes) { ep in
+                                Button {
+                                    play(ep)
+                                } label: {
+                                    HStack {
+                                        Text(ep.displayName)
+                                        Spacer()
+                                        if let n = ep.episodeNumber {
+                                            Text("Ep \(n)")
                                                 .foregroundStyle(.secondary)
                                         }
+                                        Image(systemName: "play.fill")
+                                            .foregroundStyle(.secondary)
                                     }
                                 }
                             }
                         }
-                        .padding(.top, 6)
                     }
+                } label: {
+                    Label("Episodes", systemImage: "list.bullet.rectangle")
+                        .font(.subheadline.weight(.semibold))
                 }
+                .padding(.top, 6)
             }
         }
         .padding(18)
@@ -262,17 +263,23 @@ struct AnimeDetailCardView: View {
         .onAppear {
             if allowLocalMediaLinking {
                 refreshEpisodes()
+                let hasLinkedFolder = (entryModel?.linkedFolderBookmarkData != nil)
+                isSynopsisExpanded = !hasLinkedFolder
+                isEpisodesExpanded = hasLinkedFolder
             }
         }
         .onChange(of: entryModel?.linkedFolderBookmarkData) { _, _ in
             if allowLocalMediaLinking {
                 refreshEpisodes()
+                let hasLinkedFolder = (entryModel?.linkedFolderBookmarkData != nil)
+                isSynopsisExpanded = !hasLinkedFolder
+                isEpisodesExpanded = hasLinkedFolder
             }
         }
     }
 
     private var infoRow: some View {
-        HStack(spacing: 12) {
+        VStack(alignment: .leading, spacing: 12) {
             if let score = anime.score {
                 Label(String(format: "%.1f", score), systemImage: "star.fill")
                     .font(.subheadline.weight(.semibold))
@@ -284,6 +291,72 @@ struct AnimeDetailCardView: View {
                     .foregroundStyle(.secondary)
             }
         }
+    }
+
+    @ViewBuilder
+    private var titleText: some View {
+#if os(macOS)
+        let base = Text(anime.title)
+            .font(.headline)
+            .foregroundStyle(.primary)
+            .multilineTextAlignment(.leading)
+            .lineLimit(2)
+            .truncationMode(.tail)
+            .fixedSize(horizontal: false, vertical: true)
+        if let minHeight = macTitleHeight {
+            base.frame(minHeight: minHeight, alignment: .topLeading)
+        } else {
+            base
+        }
+#else
+        Text(anime.title)
+            .font(.headline)
+            .foregroundStyle(.primary)
+            .multilineTextAlignment(.leading)
+            .lineLimit(2)
+            .truncationMode(.tail)
+            .fixedSize(horizontal: false, vertical: true)
+#endif
+    }
+
+    @ViewBuilder
+    private var synopsisSection: some View {
+        #if os(macOS)
+        if enforceMacUniformLayout {
+            VStack(alignment: .leading, spacing: 6) {
+                Label("Synopsis", systemImage: "text.book.closed")
+                    .font(.subheadline.weight(.semibold))
+                Text(anime.synopsis)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.leading)
+                    .lineLimit(macSynopsisLineLimit)
+                    .frame(minHeight: macSynopsisHeight, alignment: .topLeading)
+            }
+        } else {
+            DisclosureGroup(isExpanded: $isSynopsisExpanded) {
+                Text(anime.synopsis)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.leading)
+                    .lineLimit(synopsisLineLimit)
+            } label: {
+                Label("Synopsis", systemImage: "text.book.closed")
+                    .font(.subheadline.weight(.semibold))
+            }
+        }
+        #else
+        DisclosureGroup(isExpanded: $isSynopsisExpanded) {
+            Text(anime.synopsis)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.leading)
+                .lineLimit(synopsisLineLimit)
+        } label: {
+            Label("Synopsis", systemImage: "text.book.closed")
+                .font(.subheadline.weight(.semibold))
+        }
+        #endif
     }
 
     private var genreTags: some View {
@@ -382,6 +455,23 @@ struct AnimeDetailCardView: View {
         return Color.primary
         #endif
     }
+
+#if os(macOS)
+    private var macSynopsisLineLimit: Int { synopsisLineLimit ?? 4 }
+    private var macTitleHeight: CGFloat? {
+        guard enforceMacUniformLayout else { return nil }
+        return macLineHeight(for: .headline) * 2
+    }
+    private var macSynopsisHeight: CGFloat? {
+        guard enforceMacUniformLayout else { return nil }
+        return macLineHeight(for: .footnote) * CGFloat(macSynopsisLineLimit)
+    }
+
+    private func macLineHeight(for style: NSFont.TextStyle) -> CGFloat {
+        let font = NSFont.preferredFont(forTextStyle: style)
+        return (font.ascender - font.descender) + font.leading
+    }
+#endif
 
     private var mediaTypeIconName: String {
         switch anime.kind {
